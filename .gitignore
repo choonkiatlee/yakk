@@ -1,3 +1,8 @@
+.vscode/
+bin/
+scp.sh
+source_path.sh
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
