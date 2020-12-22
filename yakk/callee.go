@@ -4,6 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"strings"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
 	"github.com/pion/webrtc/v3"
@@ -12,19 +15,8 @@ import (
 // Callee
 // YAKK_UNINITIALISED -> YAKK_INITIALISED -> YAKK_OFFER_RECEIVED -> YAKK_CONNECTED
 
-func Callee(roomID string) {
+func ConnectAsCallee(ConnectionAddr string, yakkMailBoxConnection YakkMailBoxConnection) {
 
-	if len(roomID) == 0 {
-		fmt.Println("Input Mailbox Name: ")
-		roomID = MustReadStdin()
-	}
-
-	fmt.Print("RoomID is: ", roomID)
-
-	yakkMailBoxConnection, err := JoinMailBox(roomID)
-	if err != nil {
-		panic(err)
-	}
 	ws := yakkMailBoxConnection.Conn
 
 	// When the callee gets his conn, send a message to the caller to indicate that
@@ -67,11 +59,12 @@ func Callee(roomID string) {
 			}
 		case yakkserver.YAKKMSG_OFFER:
 			if state == YAKK_INITIALISED {
-				peerConnection, err = InitPeerConnection(&state, yakkMailBoxConnection)
+				peerConnection, err = InitPeerConnection(&state, true, yakkMailBoxConnection)
 				if err != nil {
 					panic(err)
 				}
-				InitDataChannelCallee(peerConnection)
+				InitDataChannelCallee(ConnectionAddr, peerConnection)
+				// _, err = InitDataChannelCallee("data", peerConnection)
 				answer, err := HandleOfferMsg(peerConnection, mailBoxMsg, yakkMailBoxConnection.PakeObj)
 				if err != nil {
 					panic(err)
@@ -93,4 +86,44 @@ func Callee(roomID string) {
 	}
 	select {}
 
+}
+
+func InitDataChannelCallee(ConnectionAddr string, peerConnection *webrtc.PeerConnection) {
+	peerConnection.OnDataChannel(func(dataChannel *webrtc.DataChannel) {
+		fmt.Printf("New DataChannel %s %d\n", dataChannel.Label(), dataChannel.ID())
+
+		// Register channel opening handling
+		dataChannel.OnOpen(func() {
+			fmt.Printf("Data channel '%s'-'%d' open.\n", dataChannel.Label(), dataChannel.ID())
+
+			if strings.HasPrefix(dataChannel.Label(), "DataConn") {
+				RawDC, err := dataChannel.Detach()
+				if err != nil {
+					panic(err)
+				}
+				ConnectToTCP(ConnectionAddr, RawDC)
+			}
+		})
+	})
+}
+
+func ConnectToTCP(ConnectionAddr string, RawDC io.ReadWriteCloser) {
+	// Connect to a tcp port and staple the datachannel onto the connection
+	TcpConn, err := net.Dial("tcp", ConnectionAddr)
+	if err != nil {
+		panic(err)
+	}
+	StapleConnections(TcpConn, RawDC)
+}
+
+func Callee(ConnectionAddr string) {
+	yakkMailBoxConnection, err := CreateMailBox()
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(fmt.Sprintf("Code is: %s", yakkMailBoxConnection.Name))
+	fmt.Println(fmt.Sprintf("Connect as: yakk client %s -l <port>", yakkMailBoxConnection.Name))
+
+	ConnectAsCallee(ConnectionAddr, yakkMailBoxConnection)
 }

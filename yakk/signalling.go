@@ -4,9 +4,8 @@ package yakk
 
 import (
 	"crypto/elliptic"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"time"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
@@ -32,14 +31,13 @@ func CreateMailBox() (mailbox YakkMailBoxConnection, err error) {
 		return YakkMailBoxConnection{}, err
 	}
 
-	_, r, err := conn.NextReader()
-	if err != nil {
-		return YakkMailBoxConnection{}, err
-	}
-	msg, err := ioutil.ReadAll(r)
-
 	var mailBoxMsg yakkserver.YakkMailboxMessage
-	err = json.Unmarshal(msg, &mailBoxMsg)
+	err = yakkserver.ReadOneWS(conn, &mailBoxMsg)
+
+	if mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
+		fmt.Println("Signalling Server Error")
+		panic(errors.New(mailBoxMsg.Payload))
+	}
 
 	P, err := pake.Init([]byte(mailBoxMsg.Payload), 1, curve, 50*time.Millisecond)
 	yakkMailBoxConnection := YakkMailBoxConnection{
@@ -55,6 +53,25 @@ func JoinMailBox(roomID string) (mailbox YakkMailBoxConnection, err error) {
 	if err != nil {
 		return YakkMailBoxConnection{}, err
 	}
+
+	// Retry until the joinroom signal succeeds.
+	mailBoxMsg := yakkserver.YakkMailboxMessage{
+		Msg_type: yakkserver.YAKKMSG_ERROR,
+		Payload:  "",
+	}
+	for mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
+		if err := yakkserver.ReadOneWS(conn, &mailBoxMsg); err != nil {
+			return YakkMailBoxConnection{}, err
+		}
+		if mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
+			fmt.Println("The mail box you have specified does not exist. Did you type it correctly?")
+			roomID = GetRoomIDFromStdin()
+			SendMail(yakkserver.YAKKMSG_JOINROOM, roomID, conn)
+		} else {
+			break
+		}
+	}
+
 	// The callee kicks off the pake by sending its bytes over to the caller, so it is the sender
 	Q, err := pake.Init([]byte(roomID), 0, curve, 50*time.Millisecond) // This generates a 256-bit key
 	return YakkMailBoxConnection{
@@ -64,8 +81,20 @@ func JoinMailBox(roomID string) (mailbox YakkMailBoxConnection, err error) {
 	}, err
 }
 
-func InitPeerConnection(state *string, yakkMailBoxConnection YakkMailBoxConnection) (*webrtc.PeerConnection, error) {
+func InitPeerConnection(state *string, keepWSConnAlive bool, yakkMailBoxConnection YakkMailBoxConnection) (*webrtc.PeerConnection, error) {
 	// Prepare the configuration
+	// Since this behavior diverges from the WebRTC API it has to be
+	// enabled using a settings engine. Mixing both detached and the
+	// OnMessage DataChannel API is not supported.
+	// See: https://github.com/pion/webrtc/blob/master/examples/data-channels-detach/main.go
+
+	// Create a SettingEngine and enable Detach
+	s := webrtc.SettingEngine{}
+	s.DetachDataChannels()
+
+	// Create an API object with the engine
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
+
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -75,7 +104,7 @@ func InitPeerConnection(state *string, yakkMailBoxConnection YakkMailBoxConnecti
 	}
 
 	// Create a new RTCPeerConnection
-	peerConnection, err := webrtc.NewPeerConnection(config)
+	peerConnection, err := api.NewPeerConnection(config)
 	if err != nil {
 		return &webrtc.PeerConnection{}, err
 	}
@@ -94,7 +123,13 @@ func InitPeerConnection(state *string, yakkMailBoxConnection YakkMailBoxConnecti
 		fmt.Printf("ICE Connection State has changed: %s\n", connectionState.String())
 		if connectionState == webrtc.ICEConnectionStateConnected {
 			*state = YAKK_CONNECTED
-			yakkMailBoxConnection.Conn.Close() // To do: what about multiple connections, etc. ?
+			if !keepWSConnAlive {
+				yakkMailBoxConnection.Conn.Close() // To do: what about multiple connections, etc. ?
+			}
+		}
+		if connectionState == webrtc.ICEConnectionStateDisconnected {
+			*state = YAKK_UNINITIALISED
+
 		}
 	})
 

@@ -2,6 +2,7 @@
 bin/
 scp.sh
 source_path.sh
+testcmds/
 
 # Binaries for programs and plugins
 *.exe

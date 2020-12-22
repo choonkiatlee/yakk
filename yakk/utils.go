@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 
@@ -195,4 +196,107 @@ func decrypt(encrypted []byte, key []byte) (decrypted []byte) {
 	}
 
 	return plaintext
+}
+
+// Todo: Fact Check this
+func StapleConnections(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser) {
+	// channels to wait on the close event for each connection
+	conn1Closed := make(chan struct{}, 1)
+	conn2Closed := make(chan struct{}, 1)
+
+	go broker(conn1, conn2, conn2Closed)
+	go broker(conn2, conn1, conn1Closed)
+
+	// wait for one half of the proxy to exit, then trigger a shutdown of the
+	// other half by calling CloseRead(). This will break the read loop in the
+	// broker and allow us to fully close the connection cleanly without a
+	// "use of closed network connection" error.
+	var waitFor chan struct{}
+	select {
+	case <-conn2Closed:
+		// the client closed first and any more packets from the server aren't
+		// useful, so we can optionally SetLinger(0) here to recycle the port
+		// faster.
+		err := conn1.Close()
+		if err != nil {
+			panic(err)
+		}
+		waitFor = conn1Closed
+	case <-conn1Closed:
+		err := conn2.Close()
+		if err != nil {
+			panic(err)
+		}
+		waitFor = conn2Closed
+	}
+
+	// Wait for the other connection to close.
+	// This "waitFor" pattern isn't required, but gives us a way to track the
+	// connection and ensure all copies terminate correctly; we can trigger
+	// stats on entry and deferred exit of this function.
+	<-waitFor
+}
+
+// This does the actual data transfer.
+// The broker only closes the Read side.
+func broker(dst io.ReadWriteCloser, src io.ReadWriteCloser, srcClosed chan struct{}) {
+	// We can handle errors in a finer-grained manner by inlining io.Copy (it's
+	// simple, and we drop the ReaderFrom or WriterTo checks for
+	// net.Conn->net.Conn transfers, which aren't needed). This would also let
+	// us adjust buffersize.
+	// Create a buffer of 4KB. This is to prevent readwrite errors as in:
+	// https://github.com/pion/datachannel/issues/59
+	buf := make([]byte, 4<<10)
+	_, err := io.CopyBuffer(dst, src, buf)
+
+	if err != nil {
+		// We should be able to fairly simply ignore this
+		log.Printf("Copy error: %s\n", err)
+	}
+	if err := src.Close(); err != nil {
+		log.Printf("Close error: %s\n", err)
+	}
+	srcClosed <- struct{}{}
+}
+
+// Todo: Fact Check this
+func StapleConnections2(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser, keepConn2Alive bool) {
+	// channels to wait on the close event for each connection
+	brokerError := make(chan struct{}, 1)
+
+	go broker(conn1, conn2, brokerError)
+	go broker(conn2, conn1, brokerError)
+
+	<-brokerError
+	conn1.Close()
+	fmt.Println("Closing conn1...")
+
+	// wait for one half of the proxy to exit, then trigger a shutdown of the
+	// other half by calling CloseRead(). This will break the read loop in the
+	// broker and allow us to fully close the connection cleanly without a
+	// "use of closed network connection" error.
+	// var waitFor chan struct{}
+	// select {
+	// case <-conn2Closed:
+	// 	// the client closed first and any more packets from the server aren't
+	// 	// useful, so we can optionally SetLinger(0) here to recycle the port
+	// 	// faster.
+	// 	err := conn1.Close()
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	waitFor = conn1Closed
+	// case <-conn1Closed:
+	// 	err := conn2.Close()
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	waitFor = conn2Closed
+	// }
+
+	// // Wait for the other connection to close.
+	// // This "waitFor" pattern isn't required, but gives us a way to track the
+	// // connection and ensure all copies terminate correctly; we can trigger
+	// // stats on entry and deferred exit of this function.
+	// <-waitFor
 }

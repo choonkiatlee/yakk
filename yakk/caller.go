@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
 	"github.com/pion/webrtc/v3"
@@ -13,7 +15,7 @@ import (
 // Caller
 // YAKK_UNINITIALISED -> YAKK_EXCHANGINGPAKE -> YAKK_INITIALISED -> YAKK_WAIT_FOR_ANSWER -> YAKK_CONNECTED
 
-func ConnectAsCaller(yakkMailBoxConnection YakkMailBoxConnection) {
+func ConnectAsCaller(ConnectionAddr string, yakkMailBoxConnection YakkMailBoxConnection) {
 	ws := yakkMailBoxConnection.Conn
 	// Start the signalling process
 	var peerConnection *webrtc.PeerConnection
@@ -62,12 +64,19 @@ func ConnectAsCaller(yakkMailBoxConnection YakkMailBoxConnection) {
 				}
 				// Key exchange finished. Now everyone has a sessionkey object
 				fmt.Println(yakkMailBoxConnection.PakeObj.SessionKey())
-				peerConnection, err = InitPeerConnection(&state, yakkMailBoxConnection)
+				peerConnection, err = InitPeerConnection(&state, false, yakkMailBoxConnection)
 				if err != nil {
 					panic(err)
 				}
 				// Open a datachannel
-				_, err = InitDataChannelCaller("data", peerConnection)
+				// InitDataChannelCaller(peerConnection)
+				// Commands between the caller and callee can be transmitted using this.
+				// This is also used to keep the webrtc connection alive(?)
+				_, err = CreateCommandDataChannel(peerConnection)
+
+				// Start listening on TCP connection
+				go ListenOnTCP(ConnectionAddr, peerConnection)
+
 				offer, err := HandleNegotiationNeededEvent(peerConnection)
 				if err != nil {
 					panic(err)
@@ -96,15 +105,75 @@ func ConnectAsCaller(yakkMailBoxConnection YakkMailBoxConnection) {
 	}
 }
 
-func Caller() {
-	yakkMailBoxConnection, err := CreateMailBox()
+// The caller starts the datachannel in our case
+func CreateCommandDataChannel(peerConnection *webrtc.PeerConnection) (*webrtc.DataChannel, error) {
+	// Create a datachannel with label.
+	dataChannel, err := peerConnection.CreateDataChannel("command", nil)
+	if err != nil {
+		return &webrtc.DataChannel{}, err
+	}
+
+	dataChannel.OnOpen(func() {
+		fmt.Printf("Command channel '%s'-'%d' open. ", dataChannel.Label(), dataChannel.ID())
+	})
+	return dataChannel, nil
+}
+
+func ListenOnTCP(ConnectionAddr string, peerConnection *webrtc.PeerConnection) {
+	// Listen on a TCP Port. Create a new datachannel for every new connection
+	// on the TCP Port and staple the new datachannel onto the new connection
+	l, err := net.Listen("tcp", ConnectionAddr)
+	if err != nil {
+		// fmt.Fprintln(os.Stderr, err)
+		// os.Exit(1)
+	}
+
+	id := uint16(1)
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("Connection from %s\n", conn.RemoteAddr())
+
+		// Pick a random id out of the connMap
+		// For now, we just use running numbers as a quick hack, which supports 65535 connections
+		// Create a datachannel with label.
+		dataChannel, err := peerConnection.CreateDataChannel(fmt.Sprintf("DataConn%d", id), nil)
+		if err != nil {
+			panic(err)
+		}
+		id += 1
+
+		dataChannel.OnOpen(func() {
+			fmt.Printf("Data channel '%s'-'%d' open.\n", dataChannel.Label(), dataChannel.ID())
+			RawDC, err := dataChannel.Detach()
+			if err != nil {
+				panic(err)
+			}
+			StapleConnections(conn, RawDC)
+		})
+	}
+
+}
+
+func GetRoomIDFromStdin() string {
+	fmt.Println("Input Mailbox Name: ")
+	return MustReadStdin()
+}
+
+func Caller(roomID string, ConnectionAddr string) {
+
+	if len(roomID) == 0 {
+		roomID = GetRoomIDFromStdin()
+	}
+
+	yakkMailBoxConnection, err := JoinMailBox(roomID)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(fmt.Sprintf("Code is: %s", yakkMailBoxConnection.Name))
-	fmt.Println(fmt.Sprintf("Connect as: yakk client %s -l <port>", yakkMailBoxConnection.Name))
-
-	ConnectAsCaller(yakkMailBoxConnection)
+	ConnectAsCaller(ConnectionAddr, yakkMailBoxConnection)
 	select {}
 }

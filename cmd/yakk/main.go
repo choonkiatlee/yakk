@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/choonkiatlee/yakk/yakk"
@@ -22,8 +23,8 @@ var ServerOpts struct {
 	// Slice of bool will append 'true' each time the option
 	// is encountered (can be set multiple times, like -vvv)
 	Verbose            bool   `short:"v" long:"verbose" description:"Show verbose debug information"`
-	LocalListenPort    string `short:"l" long:"listen-port" description:"TCP Port to listen" required:"True"`
-	LocalIP            string `long:"ip" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
+	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
+	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
 	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"https://127.0.0.1:6006"`
 }
 
@@ -31,8 +32,8 @@ var ClientOpts struct {
 	// Slice of bool will append 'true' each time the option
 	// is encountered (can be set multiple times, like -vvv)
 	Verbose            bool   `short:"v" long:"verbose" description:"Show verbose debug information"`
-	LocalListenPort    string `short:"l" long:"listen-port" description:"TCP Port to listen" required:"True"`
-	LocalIP            string `long:"ip" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
+	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
+	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
 	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"https://127.0.0.1:6006"`
 }
 
@@ -66,18 +67,21 @@ func main() {
 	default:
 		fmt.Println(usage)
 	case "client":
+		// The client calls the server to start a connection
 		args := parseClientArgs()
 		fmt.Println("Client Mode...")
 		if len(args) > 1 {
-			yakk.Callee(args[1])
+			yakk.Caller(args[1], net.JoinHostPort(ClientOpts.Host, ClientOpts.Port))
 		} else {
-			yakk.Callee("")
+			yakk.Caller("", net.JoinHostPort(ClientOpts.Host, ClientOpts.Port))
 		}
 	case "server":
+		// The server starts up and makes itself ready for a call
+		// from the caller
 		fmt.Println("Server Mode...")
 		parseServerArgs()
-		fmt.Println(ServerOpts.LocalIP, ServerOpts.LocalListenPort)
+		fmt.Println(ServerOpts.Host, ServerOpts.Port)
 		// Create a mailbox first
-		yakk.Caller()
+		yakk.Callee(net.JoinHostPort(ServerOpts.Host, ServerOpts.Port))
 	}
 }

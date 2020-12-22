@@ -1,3 +1,48 @@
+# YAKK (Yet Another )
+
+# Signalling
+
+
+### PAKE Exchange Procedure
+                                                +
+                 Caller                         |                      Callee
++-------------------+---------------------------|-------------------------+----------------+
+                    |                           |                         |
+ Get an empty       |         CreateMailBox --->|                         |
+ mailboxname from   |                           |                         |
+ signallingserver   |  YAKKMSG_REQUESTOFFER <---|<--- JoinMailBox         |
+                    |                           |                         |
+                    |  YAKKMSG_PAKEEXCHANGE --->|---> Update PAKE         |
+                    |                           |                         |
+ Caller now has     |           Update PAKE <---|<--- YAKKMSG_PAKEEXCHANGE|
+ full session key   |                           |                         |
+                    |  YAKKMSG_PAKEEXCHANGE --->|---> Update PAKE         |  Callee now has
+                    |                           |                         |  full session key
+                    +                           +                         +
+
+### WebRTC Connection through the YAKK Signalling Server
+Built according to [MDN Docs](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Signaling_and_video_calling)
+
+                                                +
+                 Caller                         |                      Callee
++-----------------------------------------------|------------------------------------------+
+        |                                       |
+ EXCHAN |                InitPeerConnection     |
+ GING   |             InitDataChannelCaller     |
+ PAKE   |      HandleNegotiationNeededEvent     |
+        |                     YAKKMSG_OFFER ----|---> InitPeerConnection
+        |                                       |     InitDataChannelCallee
+ WAIT   | (Begin Send/Recv of ICE Candidates)   |     HandleOfferMsg
+ FOR    |                                       |
+ ANSWER |                    HandleAnswerMsg<---|---- YAKKMSG_ANSWER
+        |                                       |
+        |                                       |     (Begin Send/Recv of ICE Candidates)
+        |                                       |
+        +
+
+
+
+
 # Running the project.
 
 ### Run the signalling server
@@ -17,3 +62,8 @@ From the yakk directory, run
 ```bash
 go run ./cmd/yakk/. client -l 8080
 ```
+
+# Doc Links:
+## Edit Ascii Art
+- [PAKE Procedure](http://stable.ascii-flow.appspot.com/#2326929467921821744/401694744)
+- [WebRTC Connection Procedure](http://stable.ascii-flow.appspot.com/#2741619146174214850/79893535)
