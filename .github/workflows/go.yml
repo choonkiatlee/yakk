@@ -8,7 +8,7 @@ on:
 
 jobs:
 
-  build linux:
+  build-linux:
     name: Build Linux
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +55,7 @@ jobs:
         # A file, directory or wildcard pattern that describes what to upload
         path: bin
 
-  build windows:
+  build-windows:
     name: Build Windows
     runs-on: windows-latest
     steps:
