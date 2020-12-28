@@ -43,7 +43,8 @@ jobs:
 
     - name: Build
       run: |
-        go build -v ./cmd/...
+        go build -o ./bin/yakk -v ./cmd/yakk/.
+        go build -o ./bin/yakkserver -v ./cmd/yakkserver/.
         ls -a
 
     # - name: Test
@@ -53,7 +54,7 @@ jobs:
       uses: actions/upload-artifact@v2.2.1
       with:
         # Artifact name
-        name: artifact
+        name: artifact-linux
         # A file, directory or wildcard pattern that describes what to upload
         path: bin
 
@@ -88,8 +89,8 @@ jobs:
 
     - name: Build
       run: |
-        go build -v ./cmd/...
-        ls -a
+        go build -o ./bin/yakk -v ./cmd/yakk/.
+        go build -o ./bin/yakkserver -v ./cmd/yakkserver/.
 
     # - name: Test
     #   run: go test -v ./...
@@ -98,6 +99,6 @@ jobs:
       uses: actions/upload-artifact@v2.2.1
       with:
         # Artifact name
-        name: artifact
+        name: artifact-windows
         # A file, directory or wildcard pattern that describes what to upload
         path: bin
