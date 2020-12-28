@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -21,9 +22,10 @@ sub-commands:
 var SignallingServerOpts struct {
 	// Slice of bool will append 'true' each time the option
 	// is encountered (can be set multiple times, like -vvv)
-	Verbose         []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
-	LocalListenPort int    `long:"port" description:"TCP Port to listen" default:"6006"`
-	LocalIP         string `long:"ip" description:"Local IP to bind to. Defaults to 127.0.0.1" default:"127.0.0.1"`
+	Verbose            []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
+	LocalListenPort    int    `long:"port" description:"TCP Port to listen" default:"6006"`
+	LocalIP            string `long:"ip" description:"Local IP to bind to. Defaults to 127.0.0.1" default:"127.0.0.1"`
+	UnixSocketFilename string `long:"unixsockfile" description:"Name of unix socket to bind to. This overrides ip / port" default:""`
 }
 
 func parseSignallingServerArgs() {
@@ -47,7 +49,21 @@ func main() {
 	// go yakkserver.CleanMailBoxes()
 
 	go yakkserver.CleanMailRooms()
-	http.ListenAndServe(addr, nil)
+
+	if len(SignallingServerOpts.UnixSocketFilename) > 0 {
+		server := http.Server{
+			Handler: http.DefaultServeMux,
+		}
+
+		unixListener, err := net.Listen("unix", SignallingServerOpts.UnixSocketFilename)
+		if err != nil {
+			panic(err)
+		}
+
+		server.Serve(unixListener)
+	} else {
+		http.ListenAndServe(addr, nil)
+	}
 }
 
 func InitLogBasedOnVerbosity(verbosity []bool) {
