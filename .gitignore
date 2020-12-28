@@ -3,6 +3,7 @@ bin/
 scp.sh
 source_path.sh
 testcmds/
+archive/
 
 # Binaries for programs and plugins
 *.exe

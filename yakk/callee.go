@@ -1,129 +1,93 @@
 package yakk
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"strings"
+	"sync"
 
-	"github.com/choonkiatlee/yakk/yakkserver"
 	"github.com/pion/webrtc/v3"
+	"github.com/rs/zerolog/log"
 )
 
 // Callee
 // YAKK_UNINITIALISED -> YAKK_INITIALISED -> YAKK_OFFER_RECEIVED -> YAKK_CONNECTED
 
-func ConnectAsCallee(ConnectionAddr string, yakkMailBoxConnection YakkMailBoxConnection) {
-
-	ws := yakkMailBoxConnection.Conn
-
-	// When the callee gets his conn, send a message to the caller to indicate that
-	// the callee is ready to begin.
-	SendMail(yakkserver.YAKKMSG_REQUESTOFFER, base64.StdEncoding.EncodeToString(yakkMailBoxConnection.PakeObj.Bytes()), ws)
-
+func CalleeInitialiseRTCConn(yakkMailBoxConnection *YakkMailBoxConnection, wg *sync.WaitGroup) (*webrtc.PeerConnection, error) {
 	var peerConnection *webrtc.PeerConnection
-	state := YAKK_UNINITIALISED
+	var err error
+
+HandleWSMsgLoop:
 	for {
-		_, msg, err := ws.ReadMessage()
-		if err != nil {
-			if state == YAKK_CONNECTED {
-				break
-			} else {
-				panic(err)
-			}
-		}
-		var mailBoxMsg yakkserver.YakkMailboxMessage
-		err = json.Unmarshal(msg, &mailBoxMsg)
-		if err != nil {
-			panic(err)
-		}
-
+		mailBoxMsg := <-yakkMailBoxConnection.RecvChannel
 		switch mailBoxMsg.Msg_type {
-		case yakkserver.YAKKMSG_PAKEEXCHANGE:
-			if state == YAKK_UNINITIALISED {
-				P_bytes, err := base64.StdEncoding.DecodeString(mailBoxMsg.Payload)
+		case YAKKMSG_OFFER:
+			if yakkMailBoxConnection.State == YAKK_INITIALISED {
+				peerConnection, err = InitPeerConnection(yakkMailBoxConnection, wg)
 				if err != nil {
-					panic(err)
+					return &webrtc.PeerConnection{}, err
 				}
-				err = yakkMailBoxConnection.PakeObj.Update(P_bytes)
+
+				answer, err := HandleOfferMsg(peerConnection, mailBoxMsg, yakkMailBoxConnection.SessionKey)
 				if err != nil {
-					fmt.Println("Error: ", err)
-					panic(err)
+					return &webrtc.PeerConnection{}, err
 				}
-				SendMail(yakkserver.YAKKMSG_PAKEEXCHANGE, base64.StdEncoding.EncodeToString(yakkMailBoxConnection.PakeObj.Bytes()), ws)
-				fmt.Println(yakkMailBoxConnection.PakeObj.SessionKey())
-				fmt.Println(yakkMailBoxConnection.PakeObj.IsVerified())
-				state = YAKK_INITIALISED
+				payload, err := EncodeObj(answer, true, yakkMailBoxConnection.SessionKey)
+				if err != nil {
+					return &webrtc.PeerConnection{}, err
+				}
+				yakkMailBoxConnection.SendMsg(
+					YAKKMSG_ANSWER,
+					payload,
+				)
+				yakkMailBoxConnection.State = YAKK_WAIT_FOR_CONNECTION
 			}
-		case yakkserver.YAKKMSG_OFFER:
-			if state == YAKK_INITIALISED {
-				peerConnection, err = InitPeerConnection(&state, true, yakkMailBoxConnection)
+		case YAKKMSG_NEW_ICE_CANDIDATE:
+			if yakkMailBoxConnection.State == YAKK_WAIT_FOR_CONNECTION {
+				err := HandleNewICEConnection(mailBoxMsg, peerConnection, yakkMailBoxConnection.SessionKey)
 				if err != nil {
-					panic(err)
+					return &webrtc.PeerConnection{}, err
 				}
-				InitDataChannelCallee(ConnectionAddr, peerConnection)
-				// _, err = InitDataChannelCallee("data", peerConnection)
-				answer, err := HandleOfferMsg(peerConnection, mailBoxMsg, yakkMailBoxConnection.PakeObj)
-				if err != nil {
-					panic(err)
-				}
-				SendMail(yakkserver.YAKKMSG_ANSWER, EncodeObj(answer, true, yakkMailBoxConnection.PakeObj), ws)
-				state = YAKK_OFFER_RECEIVED
 			}
-		case yakkserver.YAKKMSG_NEW_ICE_CANDIDATE:
-			if state == YAKK_OFFER_RECEIVED {
-				var candidate webrtc.ICECandidateInit
-				if err := DecodeObj(mailBoxMsg.Payload, &candidate, true, yakkMailBoxConnection.PakeObj); err != nil {
-					panic(err)
-				}
-				if err := peerConnection.AddICECandidate(candidate); err != nil {
-					panic(err)
-				}
+		case YAKKMSG_CONNECTED:
+			// Handle connection
+			log.Printf("Got connected msg.")
+			if yakkMailBoxConnection.State == YAKK_WAIT_FOR_CONNECTION {
+				yakkMailBoxConnection.State = YAKK_CONNECTED
+				break HandleWSMsgLoop
 			}
 		}
 	}
-	select {}
-
+	log.Debug().Msg("RTC Connection Complete")
+	return peerConnection, nil
 }
 
-func InitDataChannelCallee(ConnectionAddr string, peerConnection *webrtc.PeerConnection) {
-	peerConnection.OnDataChannel(func(dataChannel *webrtc.DataChannel) {
-		fmt.Printf("New DataChannel %s %d\n", dataChannel.Label(), dataChannel.ID())
+func Callee(wg *sync.WaitGroup, clientCommandName string, keepAlive bool) (*webrtc.PeerConnection, error) {
 
-		// Register channel opening handling
-		dataChannel.OnOpen(func() {
-			fmt.Printf("Data channel '%s'-'%d' open.\n", dataChannel.Label(), dataChannel.ID())
-
-			if strings.HasPrefix(dataChannel.Label(), "DataConn") {
-				RawDC, err := dataChannel.Detach()
-				if err != nil {
-					panic(err)
-				}
-				ConnectToTCP(ConnectionAddr, RawDC)
-			}
-		})
-	})
-}
-
-func ConnectToTCP(ConnectionAddr string, RawDC io.ReadWriteCloser) {
-	// Connect to a tcp port and staple the datachannel onto the connection
-	TcpConn, err := net.Dial("tcp", ConnectionAddr)
+	joinedRoomChan := make(chan *YakkMailBoxConnection)
+	yakkMailRoomConnection, err := CreateMailRoom(joinedRoomChan, keepAlive)
 	if err != nil {
-		panic(err)
-	}
-	StapleConnections(TcpConn, RawDC)
-}
-
-func Callee(ConnectionAddr string) {
-	yakkMailBoxConnection, err := CreateMailBox()
-	if err != nil {
-		panic(err)
+		return &webrtc.PeerConnection{}, err
 	}
 
-	fmt.Println(fmt.Sprintf("Code is: %s", yakkMailBoxConnection.Name))
-	fmt.Println(fmt.Sprintf("Connect as: yakk client %s -l <port>", yakkMailBoxConnection.Name))
+	fmt.Println(fmt.Sprintf("Your mailroom name is: %s", yakkMailRoomConnection.Name))
 
-	ConnectAsCallee(ConnectionAddr, yakkMailBoxConnection)
+	// For JPake
+	// Wait for someone to join the room
+	pw := []byte(GetInputFromStdin("Input MailRoom PW: "))
+	fmt.Println(fmt.Sprintf("One line connection command: yakk %s %s --pw %s", clientCommandName, yakkMailRoomConnection.Name, string(pw)))
+
+	yakkMailBoxConnection := <-joinedRoomChan
+
+	err = JPAKEExchange(pw, yakkMailBoxConnection, true)
+	if err != nil {
+		return &webrtc.PeerConnection{}, err
+	}
+
+	// For Schollz
+	// err = SchollzCalleePAKEExchange(pw, &yakkMailBoxConnection)
+	// if err != nil {
+	// 	return &webrtc.PeerConnection{}, err
+	// }
+
+	peerConnection, err := CalleeInitialiseRTCConn(yakkMailBoxConnection, wg)
+	return peerConnection, err
 }

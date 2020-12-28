@@ -4,19 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
+	"net"
 	"os"
 	"strings"
 
-	"github.com/schollz/pake"
+	"github.com/rs/zerolog/log"
 )
 
 var compress = false
@@ -47,33 +44,30 @@ func MustReadStdin() string {
 
 // Encode encodes the input in base64
 // It can optionally zip the input before encoding
-func EncodeObj(obj interface{}, encrypted bool, pakeObj *pake.Pake) string {
+func EncodeObj(obj interface{}, encrypted bool, encryptionKey []byte) (string, error) {
 	b, err := json.Marshal(obj)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
 	if compress {
 		b = zip(b)
 	}
-	return EncodeBytes(b, encrypted, pakeObj)
+	return EncodeBytes(b, encrypted, encryptionKey)
 }
 
-func EncodeBytes(b []byte, encrypted bool, pakeObj *pake.Pake) string {
+func EncodeBytes(b []byte, encrypted bool, encryptionKey []byte) (string, error) {
+	var err error = nil
 	if encrypted {
-		key, err := GetEncryptionKey(pakeObj)
-		if err != nil {
-			panic(err)
-		}
-		b = encrypt(b, key)
+		b, err = AESencrypt(b, encryptionKey)
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), err
 }
 
 // Decode decodes the input from base64
 // It can optionally unzip the input after decoding
-func DecodeObj(in string, obj interface{}, encrypted bool, pakeObj *pake.Pake) error {
-	b, err := DecodeBytes(in, encrypted, pakeObj)
+func DecodeObj(in string, obj interface{}, encrypted bool, encryptionKey []byte) error {
+	b, err := DecodeBytes(in, encrypted, encryptionKey)
 	if err != nil {
 		return (err)
 	}
@@ -89,17 +83,16 @@ func DecodeObj(in string, obj interface{}, encrypted bool, pakeObj *pake.Pake) e
 	return nil
 }
 
-func DecodeBytes(in string, encrypted bool, pakeObj *pake.Pake) ([]byte, error) {
+func DecodeBytes(in string, encrypted bool, encryptionKey []byte) ([]byte, error) {
 	bytesFromMsg, err := base64.StdEncoding.DecodeString(in)
 	if err != nil {
 		return []byte{}, err
 	}
 	if encrypted {
-		key, err := GetEncryptionKey(pakeObj)
+		bytesFromMsg, err = AESdecrypt(bytesFromMsg, encryptionKey)
 		if err != nil {
 			return []byte{}, err
 		}
-		bytesFromMsg = decrypt(bytesFromMsg, key)
 	}
 	return bytesFromMsg, nil
 }
@@ -139,63 +132,9 @@ func unzip(in []byte) []byte {
 	return res
 }
 
-// From https://www.melvinvivas.com/how-to-encrypt-and-decrypt-data-using-aes/
-// To check
-func encrypt(plaintext []byte, key []byte) (encrypted []byte) {
-
-	//Since the key is in string, we need to convert decode it to bytes
-	//Create a new Cipher Block from the key
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	//Create a new GCM - https://en.wikipedia.org/wiki/Galois/Counter_Mode
-	//https://golang.org/pkg/crypto/cipher/#NewGCM
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	//Create a nonce. Nonce should be from GCM
-	nonce := make([]byte, aesGCM.NonceSize())
-	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
-	}
-
-	//Encrypt the data using aesGCM.Seal
-	//Since we don't want to save the nonce somewhere else in this case, we add it as a prefix to the encrypted data. The first nonce argument in Seal is the prefix.
-	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
-	return ciphertext
-}
-
-func decrypt(encrypted []byte, key []byte) (decrypted []byte) {
-
-	//Create a new Cipher Block from the key
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	//Create a new GCM
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	//Get the nonce size
-	nonceSize := aesGCM.NonceSize()
-
-	//Extract the nonce from the encrypted data
-	nonce, ciphertext := encrypted[:nonceSize], encrypted[nonceSize:]
-
-	//Decrypt the data
-	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	return plaintext
+func GetInputFromStdin(msg string) string {
+	fmt.Println(msg)
+	return MustReadStdin()
 }
 
 // Todo: Fact Check this
@@ -235,6 +174,7 @@ func StapleConnections(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser) {
 	// connection and ensure all copies terminate correctly; we can trigger
 	// stats on entry and deferred exit of this function.
 	<-waitFor
+	log.Info().Msg("Closed Stapled Connections.")
 }
 
 // This does the actual data transfer.
@@ -251,52 +191,24 @@ func broker(dst io.ReadWriteCloser, src io.ReadWriteCloser, srcClosed chan struc
 
 	if err != nil {
 		// We should be able to fairly simply ignore this
-		log.Printf("Copy error: %s\n", err)
+		log.Info().Msgf("Copy error: %s\n", err)
 	}
 	if err := src.Close(); err != nil {
-		log.Printf("Close error: %s\n", err)
+		log.Info().Msgf("Close error: %s\n", err)
 	}
 	srcClosed <- struct{}{}
 }
 
-// Todo: Fact Check this
-func StapleConnections2(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser, keepConn2Alive bool) {
-	// channels to wait on the close event for each connection
-	brokerError := make(chan struct{}, 1)
+func GetRandomOpenPort() (int, error) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return -1, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
 
-	go broker(conn1, conn2, brokerError)
-	go broker(conn2, conn1, brokerError)
+	if err := listener.Close(); err != nil {
+		return -1, err
+	}
 
-	<-brokerError
-	conn1.Close()
-	fmt.Println("Closing conn1...")
-
-	// wait for one half of the proxy to exit, then trigger a shutdown of the
-	// other half by calling CloseRead(). This will break the read loop in the
-	// broker and allow us to fully close the connection cleanly without a
-	// "use of closed network connection" error.
-	// var waitFor chan struct{}
-	// select {
-	// case <-conn2Closed:
-	// 	// the client closed first and any more packets from the server aren't
-	// 	// useful, so we can optionally SetLinger(0) here to recycle the port
-	// 	// faster.
-	// 	err := conn1.Close()
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	waitFor = conn1Closed
-	// case <-conn1Closed:
-	// 	err := conn2.Close()
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
-	// 	waitFor = conn2Closed
-	// }
-
-	// // Wait for the other connection to close.
-	// // This "waitFor" pattern isn't required, but gives us a way to track the
-	// // connection and ensure all copies terminate correctly; we can trigger
-	// // stats on entry and deferred exit of this function.
-	// <-waitFor
+	return port, nil
 }

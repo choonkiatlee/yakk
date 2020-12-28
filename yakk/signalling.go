@@ -1,87 +1,83 @@
-// Handles all signalling and connection related stuff
-
 package yakk
 
 import (
-	"crypto/elliptic"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+	"io"
+	"sync"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
-	"github.com/schollz/pake"
+	"github.com/rs/zerolog/log"
 )
 
-func SendMail(msg_type string, payload string, ws *websocket.Conn) error {
-	// Send our answer back to the caller as json
-	newOfferMsg := yakkserver.YakkMailboxMessage{
+func SendDataChannelMail(msg_type, payload string, datachannel io.ReadWriteCloser) error {
+	msg := yakkserver.YakkMailboxMessage{
 		Msg_type: msg_type,
 		Payload:  payload,
 	}
-	return ws.WriteJSON(newOfferMsg)
+	msgInBytes, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	_, err = datachannel.Write(msgInBytes)
+	return err
 }
 
-var curve = elliptic.P256()
-
-func CreateMailBox() (mailbox YakkMailBoxConnection, err error) {
-	conn, _, err := websocket.DefaultDialer.Dial("ws://127.0.0.1:6006/ws/", nil)
+func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool) (YakkMailRoomConnection, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:6006/ws/?keepAlive=%t", keepAlive), nil)
 	if err != nil {
-		return YakkMailBoxConnection{}, err
+		return YakkMailRoomConnection{}, err
 	}
 
 	var mailBoxMsg yakkserver.YakkMailboxMessage
 	err = yakkserver.ReadOneWS(conn, &mailBoxMsg)
 
-	if mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
-		fmt.Println("Signalling Server Error")
+	if mailBoxMsg.Msg_type == YAKKMSG_ERROR {
+		log.Error().Msg("Signalling Server Error")
 		panic(errors.New(mailBoxMsg.Payload))
 	}
 
-	P, err := pake.Init([]byte(mailBoxMsg.Payload), 1, curve, 50*time.Millisecond)
-	yakkMailBoxConnection := YakkMailBoxConnection{
-		Name:    mailBoxMsg.Payload,
-		PakeObj: P,
-		Conn:    conn,
-	}
-	return yakkMailBoxConnection, nil
+	yakkMailRoom := InitYakkMailRoomConnection(mailBoxMsg.Payload, mailBoxMsg.Recipient, conn, joinedRoomChan)
+
+	return yakkMailRoom, nil
 }
 
-func JoinMailBox(roomID string) (mailbox YakkMailBoxConnection, err error) {
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("%s%s", "ws://127.0.0.1:6006/ws/", roomID), nil)
+func JoinMailRoom(roomID string) (YakkMailRoomConnection, *YakkMailBoxConnection, error) {
+
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("%s?roomID=%s", "ws://127.0.0.1:6006/ws/", roomID), nil)
 	if err != nil {
-		return YakkMailBoxConnection{}, err
+		return YakkMailRoomConnection{}, &YakkMailBoxConnection{}, err
 	}
 
 	// Retry until the joinroom signal succeeds.
 	mailBoxMsg := yakkserver.YakkMailboxMessage{
-		Msg_type: yakkserver.YAKKMSG_ERROR,
+		Msg_type: YAKKMSG_ERROR,
 		Payload:  "",
 	}
-	for mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
+	for mailBoxMsg.Msg_type == YAKKMSG_ERROR {
 		if err := yakkserver.ReadOneWS(conn, &mailBoxMsg); err != nil {
-			return YakkMailBoxConnection{}, err
+			return YakkMailRoomConnection{}, &YakkMailBoxConnection{}, err
 		}
-		if mailBoxMsg.Msg_type == yakkserver.YAKKMSG_ERROR {
+		if mailBoxMsg.Msg_type == YAKKMSG_ERROR {
 			fmt.Println("The mail box you have specified does not exist. Did you type it correctly?")
-			roomID = GetRoomIDFromStdin()
-			SendMail(yakkserver.YAKKMSG_JOINROOM, roomID, conn)
+			roomID = GetInputFromStdin("Input MailRoom Name: ")
+			conn.WriteJSON(yakkserver.YakkMailboxMessage{
+				Msg_type: YAKKMSG_JOINROOM,
+				Payload:  roomID,
+			})
 		} else {
 			break
 		}
 	}
-
-	// The callee kicks off the pake by sending its bytes over to the caller, so it is the sender
-	Q, err := pake.Init([]byte(roomID), 0, curve, 50*time.Millisecond) // This generates a 256-bit key
-	return YakkMailBoxConnection{
-		Name:    roomID,
-		PakeObj: Q,
-		Conn:    conn,
-	}, err
+	yakkMailRoomConnection := InitYakkMailRoomConnection(roomID, mailBoxMsg.Recipient, conn, make(chan *YakkMailBoxConnection)) // we ignore the joinroom chan here as we setup our own mailbox
+	yakkMailBox := yakkMailRoomConnection.CreateMailBox(mailBoxMsg.Sender)
+	return yakkMailRoomConnection, yakkMailBox, err
 }
 
-func InitPeerConnection(state *string, keepWSConnAlive bool, yakkMailBoxConnection YakkMailBoxConnection) (*webrtc.PeerConnection, error) {
+func InitPeerConnection(yakkMailBoxConnection *YakkMailBoxConnection, wg *sync.WaitGroup) (*webrtc.PeerConnection, error) {
 	// Prepare the configuration
 	// Since this behavior diverges from the WebRTC API it has to be
 	// enabled using a settings engine. Mixing both detached and the
@@ -115,24 +111,32 @@ func InitPeerConnection(state *string, keepWSConnAlive bool, yakkMailBoxConnecti
 		}
 		desc := peerConnection.RemoteDescription()
 		if desc != nil {
-			SendMail(yakkserver.YAKKMSG_NEW_ICE_CANDIDATE, EncodeObj(c.ToJSON(), true, yakkMailBoxConnection.PakeObj), yakkMailBoxConnection.Conn)
+			payload, err := EncodeObj(c.ToJSON(), true, yakkMailBoxConnection.SessionKey)
+			if err != nil {
+				return
+			}
+			yakkMailBoxConnection.SendMsg(
+				YAKKMSG_NEW_ICE_CANDIDATE,
+				payload,
+			)
 		}
 	})
 
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("ICE Connection State has changed: %s\n", connectionState.String())
+		log.Info().Msgf("ICE Connection State has changed: %s\n", connectionState.String())
 		if connectionState == webrtc.ICEConnectionStateConnected {
-			*state = YAKK_CONNECTED
-			if !keepWSConnAlive {
-				yakkMailBoxConnection.Conn.Close() // To do: what about multiple connections, etc. ?
-			}
+			yakkMailBoxConnection.SendMsg(
+				YAKKMSG_CONNECTED,
+				"",
+			)
+			log.Debug().Msg("Sending connected status...")
+			wg.Add(1)
 		}
 		if connectionState == webrtc.ICEConnectionStateDisconnected {
-			*state = YAKK_UNINITIALISED
-
+			// to do: make a way to clean up the mailbox
+			wg.Done()
 		}
 	})
-
 	return peerConnection, nil
 }
 
@@ -151,9 +155,9 @@ func HandleNegotiationNeededEvent(peerConnection *webrtc.PeerConnection) (webrtc
 	return offer, nil
 }
 
-func HandleOfferMsg(peerConnection *webrtc.PeerConnection, yakkMailBoxMsg yakkserver.YakkMailboxMessage, pakeObj *pake.Pake) (webrtc.SessionDescription, error) {
+func HandleOfferMsg(peerConnection *webrtc.PeerConnection, yakkMailBoxMsg yakkserver.YakkMailboxMessage, encryptionKey []byte) (webrtc.SessionDescription, error) {
 	var offer webrtc.SessionDescription
-	if err := DecodeObj(yakkMailBoxMsg.Payload, &offer, true, pakeObj); err != nil {
+	if err := DecodeObj(yakkMailBoxMsg.Payload, &offer, true, encryptionKey); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 
@@ -176,10 +180,10 @@ func HandleOfferMsg(peerConnection *webrtc.PeerConnection, yakkMailBoxMsg yakkse
 	return answer, nil
 }
 
-func HandleAnswerMsg(yakkMailBoxMsg yakkserver.YakkMailboxMessage, peerConnection *webrtc.PeerConnection, pakeObj *pake.Pake) error {
+func HandleAnswerMsg(yakkMailBoxMsg yakkserver.YakkMailboxMessage, peerConnection *webrtc.PeerConnection, encryptionKey []byte) error {
 
 	var answer webrtc.SessionDescription
-	if err := DecodeObj(yakkMailBoxMsg.Payload, &answer, true, pakeObj); err != nil {
+	if err := DecodeObj(yakkMailBoxMsg.Payload, &answer, true, encryptionKey); err != nil {
 		return err
 	}
 
@@ -191,16 +195,27 @@ func HandleAnswerMsg(yakkMailBoxMsg yakkserver.YakkMailboxMessage, peerConnectio
 	return nil
 }
 
-func GetEncryptionKey(PakeObj *pake.Pake) ([]byte, error) {
-	// if !PakeObj.IsVerified() {
-	// 	fmt.Println("The PAKE has not been verified to be safe. Are you sure you want to continue? Press y to agree")
-	// 	if MustReadStdin() != "y" {
-	// 		return []byte{}, errors.New("Manually Aborted because PAKE was not safe")
-	// 	}
-	// }
-	key, err := PakeObj.SessionKey()
-	if err != nil {
-		return []byte{}, err
+func HandleNewICEConnection(yakkMailBoxMsg yakkserver.YakkMailboxMessage, peerConnection *webrtc.PeerConnection, encryptionKey []byte) error {
+	var candidate webrtc.ICECandidateInit
+	if err := DecodeObj(yakkMailBoxMsg.Payload, &candidate, true, encryptionKey); err != nil {
+		return err
 	}
-	return key, nil
+	if err := peerConnection.AddICECandidate(candidate); err != nil {
+		return err
+	}
+	return nil
+}
+
+// The caller starts the datachannel in our case
+func CreateCommandDataChannel(peerConnection *webrtc.PeerConnection) (*webrtc.DataChannel, error) {
+	// Create a datachannel with label.
+	dataChannel, err := peerConnection.CreateDataChannel("command", nil)
+	if err != nil {
+		return &webrtc.DataChannel{}, err
+	}
+
+	dataChannel.OnOpen(func() {
+		log.Info().Msgf("Command channel '%s'-'%d' open. ", dataChannel.Label(), dataChannel.ID())
+	})
+	return dataChannel, nil
 }

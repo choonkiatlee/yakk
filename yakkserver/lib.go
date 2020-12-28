@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog/log"
 	"github.com/sethvargo/go-diceware/diceware"
 )
 
@@ -25,14 +25,7 @@ const (
 	YAKKMSG_JOINROOM    = "YAKKMSG_JOINROOM"
 	YAKKMSG_ROOMCREATED = "YAKKMSG_ROOMCREATED"
 	YAKKMSG_ROOMJOINED  = "YAKKMSG_ROOMJOINED"
-
-	YAKKMSG_REQUESTOFFER = "YAKKMSG_REQUESTOFFER"
-	YAKKMSG_PAKEEXCHANGE = "YAKKMSG_PAKEEXCHANGE"
-
-	YAKKMSG_OFFER             = "YAKKMSG_OFFER"
-	YAKKMSG_ANSWER            = "YAKKMSG_ANSWER"
-	YAKKMSG_NEW_ICE_CANDIDATE = "YAKKMSG_NEW_ICE_CANDIDATE"
-	YAKKMSG_CONNECTED         = "YAKKMSG_CONNECTED"
+	YAKKMSG_NEWJOINER   = "YAKKMSG_NEWJOINER"
 
 	YAKKMSG_ERROR        = "YAKKMSG_ERROR"
 	YAKKMSG_DISCONNECTED = "YAKKMSG_DISCONNECTED"
@@ -46,93 +39,92 @@ type YakkMailboxMessage struct {
 }
 
 type YakkMailBox struct {
-	Name             string
 	lastAccessedTime time.Time
 	ID               int
 	Conn             *websocket.Conn
-	ClientConn       *websocket.Conn
-	ServerConn       *websocket.Conn
 }
 
 type YakkMailRoom struct {
-	Name          string
-	YakkMailBoxes map[int]*YakkMailBox // Map of client ids, each keyed to one mailbox
-	OwnerID       int
-	mailBoxMux    sync.Mutex
+	Name               string
+	YakkMailBoxes      map[int]*YakkMailBox // Map of client ids, each keyed to one mailbox
+	OwnerID            int
+	messagesQueue      chan []byte
+	keepAliveInMinutes int
 }
 
 var upgrader = websocket.Upgrader{} // use default options
 
-var yakkMailBoxes = make(map[string]*YakkMailBox)
-
+// var yakkMailBoxes = make(map[string]*YakkMailBox)
 var yakkMailRooms = make(map[string]*YakkMailRoom)
 
-func CreateMailbox(server_ws_conn *websocket.Conn) YakkMailboxMessage {
-
-	// to do: err out if room alr exists
-	// create a new YakkMailRoom
-	randomWordsList, err := diceware.Generate(2)
-	if err != nil {
-		fmt.Println(err)
-	}
-	yakkMailBox := YakkMailBox{
-		Name:             strings.Join(randomWordsList, "_"),
-		ServerConn:       server_ws_conn,
-		lastAccessedTime: time.Now(),
-	}
-
-	yakkMailBoxes[yakkMailBox.Name] = &yakkMailBox
-	mailboxReplyMsg := YakkMailboxMessage{
-		Msg_type: YAKKMSG_ROOMCREATED,
-		Payload:  yakkMailBox.Name,
-	}
-	return mailboxReplyMsg
-}
-
-func CreateMailRoom(server_ws_conn *websocket.Conn) YakkMailboxMessage {
+func CreateMailRoom(server_ws_conn *websocket.Conn, keepAlive bool) YakkMailboxMessage {
 	randomWordsList, err := diceware.Generate(1)
 	if err != nil {
-		fmt.Println(err)
-	}
-
-	yakkMailBoxesMap := make(map[int]*YakkMailBox)
-	yakkMailBoxesMap[0] = &YakkMailBox{
-		ID:               0,
-		Conn:             server_ws_conn,
-		lastAccessedTime: time.Now(),
+		log.Error().Msg(err.Error())
 	}
 
 	// OwnerID is always 0
+	var keepAliveInMinutes int
+	if keepAlive {
+		keepAliveInMinutes = 10
+	} else {
+		keepAliveInMinutes = 1
+	}
 	yakkMailRoom := YakkMailRoom{
-		Name:          strings.Join(randomWordsList, "_"),
-		OwnerID:       0,
-		YakkMailBoxes: yakkMailBoxesMap,
-		mailBoxMux:    sync.Mutex{},
+		Name:               strings.Join(randomWordsList, "_"),
+		OwnerID:            0,
+		YakkMailBoxes:      make(map[int]*YakkMailBox),
+		messagesQueue:      make(chan []byte),
+		keepAliveInMinutes: keepAliveInMinutes,
 	}
 
 	yakkMailRooms[yakkMailRoom.Name] = &yakkMailRoom
+	id := CreateMailBox(yakkMailRoom.Name, server_ws_conn)
+	yakkMailRoom.OwnerID = id
 
 	mailboxReplyMsg := YakkMailboxMessage{
-		Msg_type: YAKKMSG_ROOMCREATED,
-		Payload:  yakkMailRoom.Name,
+		Msg_type:  YAKKMSG_ROOMCREATED,
+		Payload:   yakkMailRoom.Name,
+		Sender:    -1,
+		Recipient: id,
 	}
+	go OperateMailRoomWrites(&yakkMailRoom)
 	return mailboxReplyMsg
 }
 
-func JoinMailBox(roomID string, client_ws_conn *websocket.Conn) YakkMailboxMessage {
+func CreateMailBox(roomID string, conn *websocket.Conn) int {
+
+	// Retrieve the mailroom
+	yakkMailRoom := yakkMailRooms[roomID]
+
+	// Get the next available connection name
+	// super simple version
+	id := len(yakkMailRoom.YakkMailBoxes)
+
+	yakkMailBox := YakkMailBox{
+		ID:               id,
+		Conn:             conn,
+		lastAccessedTime: time.Now(),
+	}
+	yakkMailRoom.YakkMailBoxes[id] = &yakkMailBox
+	go OperateMailBoxReads(id, yakkMailRoom)
+	return id
+}
+
+func JoinMailRoom(roomID string, client_ws_conn *websocket.Conn) YakkMailboxMessage {
 
 	var ReplyMsg YakkMailboxMessage
-	if yakkMailBox, ok := yakkMailBoxes[roomID]; ok {
-		// join a room instead
-		yakkMailBox.ClientConn = client_ws_conn
-		FusePipes2(yakkMailBox)
-		fmt.Println(fmt.Sprintf("All Joined Room: %s", roomID))
+	if yakkMailRoom, ok := yakkMailRooms[roomID]; ok {
+		// Room available. Join Room.
+		id := CreateMailBox(roomID, client_ws_conn)
 		ReplyMsg = YakkMailboxMessage{
-			Msg_type: YAKKMSG_ROOMJOINED,
-			Payload:  roomID,
+			Msg_type:  YAKKMSG_ROOMJOINED,
+			Payload:   fmt.Sprint(id),
+			Sender:    yakkMailRoom.OwnerID,
+			Recipient: id,
 		}
 	} else {
-		fmt.Println(fmt.Sprintf("No such room: %s.", roomID))
+		log.Info().Msg(fmt.Sprintf("No such room: %s.", roomID))
 		ReplyMsg = YakkMailboxMessage{
 			Msg_type: YAKKMSG_ERROR,
 			Payload:  "No such room",
@@ -141,122 +133,110 @@ func JoinMailBox(roomID string, client_ws_conn *websocket.Conn) YakkMailboxMessa
 		var extraMsg YakkMailboxMessage
 		err := ReadOneWS(client_ws_conn, &extraMsg)
 		if err != nil {
-			log.Println("Could not read.")
+			log.Info().Msg("Could not read.")
 			panic(err)
 		}
-		return JoinMailBox(extraMsg.Payload, client_ws_conn)
+		return JoinMailRoom(extraMsg.Payload, client_ws_conn)
 	}
 	return ReplyMsg
 }
 
-func FusePipes2(yakkMailBox *YakkMailBox) {
-	server_conn := yakkMailBox.ServerConn
-	client_conn := yakkMailBox.ClientConn
-
-	go ConnectPipeOneDirectional(server_conn, client_conn)
-	go ConnectPipeOneDirectional(client_conn, server_conn)
-}
-
-func FusePipes(yakkMailBox *YakkMailBox) {
-	server_conn := yakkMailBox.ServerConn
-	client_conn := yakkMailBox.ClientConn
-
-	messageType, serverReader, err := server_conn.NextReader()
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	serverWriter, err := server_conn.NextWriter(messageType)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	messageType, clientReader, err := client_conn.NextReader()
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	clientWriter, err := client_conn.NextWriter(messageType)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	brokerError := make(chan struct{}, 1)
-
-	go broker2(serverWriter, serverReader, brokerError)
-	go broker2(clientWriter, clientReader, brokerError)
-
-	<-brokerError
-	client_conn.Close()
-	fmt.Println("Closing client...")
-
-	// Block until pipe Error is triggered. We only close the client, and keep the
-	// server alive
-	// <-pipeError
-	// client_conn.Close()
-	// fmt.Println("Closing Connections....")
-}
-
-func ConnectPipeOneDirectional(conn1 *websocket.Conn, conn2 *websocket.Conn) {
-	// All messages from conn1 written to conn2
-	// Todo: how to keep the server alive when the client dies?
-	for {
-		messageType, r, err := conn1.NextReader()
-		if err != nil {
-			fmt.Println(err)
-			break
-		}
-		w, err := conn2.NextWriter(messageType)
-		if err != nil {
-			fmt.Println(err)
-			break
-		}
-		if _, err := io.Copy(w, r); err != nil {
-			fmt.Println(err)
-			break
-		}
-		if err := w.Close(); err != nil {
-			break
-		}
-	}
-	// if we get any errors, we assume that the clients have connected and closed their
-	// connections, so we close and do the same too.
-	// pipeError <- struct{}{}
-	conn1.Close()
-	conn2.Close()
-	fmt.Println("Closing Connections....")
-}
-
 func HandleMessage(w http.ResponseWriter, req *http.Request) {
 
-	roomID := strings.TrimPrefix(req.URL.Path, "/ws/")
+	var roomID string = ""
+	var keepAlive bool = false
+	var err error
+	roomIDs, ok := req.URL.Query()["roomID"]
+	if ok || len(roomIDs) >= 1 {
+		roomID = roomIDs[0]
+	}
+
+	keepAlives, ok := req.URL.Query()["keepAlive"]
+	if ok || len(keepAlives) >= 1 {
+		keepAlive, err = strconv.ParseBool(keepAlives[0])
+		if err != nil {
+			log.Info().Msg("Keep Conn Alive parameter not a bool-like value")
+			return
+		}
+	}
+
 	ws, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
+		log.Print("Problem upgrading the ws conn with error: ", err)
 		return
 	}
 
 	var ReplyMsg YakkMailboxMessage
 	if len(roomID) > 0 {
-		fmt.Println(roomID)
-		ReplyMsg = JoinMailBox(roomID, ws)
+		log.Debug().Msg(roomID)
+		ReplyMsg = JoinMailRoom(roomID, ws)
 	} else {
-		ReplyMsg = CreateMailbox(ws)
+		ReplyMsg = CreateMailRoom(ws, keepAlive)
 	}
 	// hold the websockets and return.
 	ws.WriteJSON(ReplyMsg)
 }
 
-func CleanMailBoxes() {
-	// Remove all YakkMailBoxes older than 10min
-	for {
-		currentTime := time.Now()
-		for mailBoxName, yakkMailBox := range yakkMailBoxes {
-			if currentTime.Sub(yakkMailBox.lastAccessedTime) > 10*time.Minute {
-				delete(yakkMailBoxes, mailBoxName)
-				fmt.Println("Deleted Mailbox ", mailBoxName)
-			}
+func OperateMailRoomWrites(yakkMailRoom *YakkMailRoom) {
+	var mailBoxMsg YakkMailboxMessage
+	for message := range yakkMailRoom.messagesQueue {
+		err := json.Unmarshal(message, &mailBoxMsg)
+		if err != nil {
+			log.Error().Msg(err.Error())
 		}
-		time.Sleep(2 * time.Minute)
+		// Forward it on to the recipient
+		if mailBox, ok := yakkMailRoom.YakkMailBoxes[mailBoxMsg.Recipient]; ok {
+			mailBox.Conn.WriteMessage(websocket.BinaryMessage, message)
+		}
+	}
+}
+
+func OperateMailBoxReads(ID int, yakkMailRoom *YakkMailRoom) {
+	conn := yakkMailRoom.YakkMailBoxes[ID].Conn
+	for {
+		_, m, err := conn.ReadMessage()
+		if err != nil {
+			log.Error().Msgf("Could not read: %s", err.Error())
+			// If you are the last open connection, close the channel?
+			conn.Close()
+			delete(yakkMailRoom.YakkMailBoxes, ID)
+			return
+		}
+		yakkMailRoom.messagesQueue <- m
+	}
+}
+
+// func CleanMailBoxes() {
+// 	// Remove all YakkMailBoxes older than 10min
+// 	for {
+// 		currentTime := time.Now()
+// 		for mailBoxName, yakkMailBox := range yakkMailBoxes {
+// 			if currentTime.Sub(yakkMailBox.lastAccessedTime) > 10*time.Minute {
+// 				delete(yakkMailBoxes, mailBoxName)
+// 				fmt.Println("Deleted Mailbox ", mailBoxName)
+// 			}
+// 		}
+// 		time.Sleep(2 * time.Minute)
+// 	}
+// }
+
+func CleanMailRooms() {
+	// Remove all YakkMailRooms with no valid YakkMailBoxes unless the keepalive parameter is set
+	sleepTime := 2
+	for {
+		for mailRoomName, mailRoom := range yakkMailRooms {
+			log.Print("Trying to clean up ", mailRoomName, " with ", len(mailRoom.YakkMailBoxes), " mailboxes")
+			if len(mailRoom.YakkMailBoxes) == 0 {
+				if mailRoom.keepAliveInMinutes <= 0 {
+					close(mailRoom.messagesQueue) // safe to close this because zero mailboxes: i.e. no more writing to the message queue
+					delete(yakkMailRooms, mailRoomName)
+					log.Print("Deleted Mailroom with no mailboxes: ", mailRoomName)
+				} else {
+					mailRoom.keepAliveInMinutes -= sleepTime
+				}
+			}
+			time.Sleep(time.Duration(sleepTime) * time.Second)
+		}
 	}
 }
 
@@ -298,6 +278,106 @@ func StapleConnections2(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser, keep
 
 	<-brokerError
 	conn1.Close()
-	fmt.Println("Closing conn1...")
+	log.Debug().Msg("Closing conn1...")
 
 }
+
+// func FusePipes2(yakkMailBox *YakkMailBox) {
+// 	server_conn := yakkMailBox.ServerConn
+// 	client_conn := yakkMailBox.ClientConn
+
+// 	go ConnectPipeOneDirectional(server_conn, client_conn)
+// 	go ConnectPipeOneDirectional(client_conn, server_conn)
+// }
+
+// func FusePipes(yakkMailBox *YakkMailBox) {
+// 	server_conn := yakkMailBox.ServerConn
+// 	client_conn := yakkMailBox.ClientConn
+
+// 	messageType, serverReader, err := server_conn.NextReader()
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+
+// 	serverWriter, err := server_conn.NextWriter(messageType)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+
+// 	messageType, clientReader, err := client_conn.NextReader()
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+
+// 	clientWriter, err := client_conn.NextWriter(messageType)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+
+// 	brokerError := make(chan struct{}, 1)
+
+// 	go broker2(serverWriter, serverReader, brokerError)
+// 	go broker2(clientWriter, clientReader, brokerError)
+
+// 	<-brokerError
+// 	client_conn.Close()
+// 	fmt.Println("Closing client...")
+
+// 	// Block until pipe Error is triggered. We only close the client, and keep the
+// 	// server alive
+// 	// <-pipeError
+// 	// client_conn.Close()
+// 	// fmt.Println("Closing Connections....")
+// }
+
+// func ConnectPipeOneDirectional(conn1 *websocket.Conn, conn2 *websocket.Conn) {
+// 	// All messages from conn1 written to conn2
+// 	// Todo: how to keep the server alive when the client dies?
+// 	for {
+// 		messageType, r, err := conn1.NextReader()
+// 		if err != nil {
+// 			fmt.Println(err)
+// 			break
+// 		}
+// 		w, err := conn2.NextWriter(messageType)
+// 		if err != nil {
+// 			fmt.Println(err)
+// 			break
+// 		}
+// 		if _, err := io.Copy(w, r); err != nil {
+// 			fmt.Println(err)
+// 			break
+// 		}
+// 		if err := w.Close(); err != nil {
+// 			break
+// 		}
+// 	}
+// 	// if we get any errors, we assume that the clients have connected and closed their
+// 	// connections, so we close and do the same too.
+// 	// pipeError <- struct{}{}
+// 	conn1.Close()
+// 	conn2.Close()
+// 	fmt.Println("Closing Connections....")
+// }
+
+// func CreateMailbox(server_ws_conn *websocket.Conn) YakkMailboxMessage {
+
+// 	// to do: err out if room alr exists
+// 	// create a new YakkMailRoom
+// 	randomWordsList, err := diceware.Generate(2)
+// 	if err != nil {
+// 		fmt.Println(err)
+// 	}
+// 	yakkMailBox := YakkMailBox{
+// 		Name:             strings.Join(randomWordsList, "_"),
+// 		ServerConn:       server_ws_conn,
+// 		lastAccessedTime: time.Now(),
+// 	}
+
+// 	yakkMailBoxes[yakkMailBox.Name] = &yakkMailBox
+// 	mailboxReplyMsg := YakkMailboxMessage{
+// 		Msg_type: YAKKMSG_ROOMCREATED,
+// 		Payload:  yakkMailBox.Name,
+// 	}
+// 	return mailboxReplyMsg
+// }

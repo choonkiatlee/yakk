@@ -3,9 +3,13 @@ package main
 import (
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
+	"os"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
 	"github.com/jessevdk/go-flags"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 const usage = `Usage: yakkserver [options]
@@ -17,8 +21,7 @@ sub-commands:
 var SignallingServerOpts struct {
 	// Slice of bool will append 'true' each time the option
 	// is encountered (can be set multiple times, like -vvv)
-	Verbose bool `short:"v" long:"verbose" description:"Show verbose debug information"`
-	// LocalListenPort string `long:"port" description:"TCP Port to listen" required:"True"`
+	Verbose         []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	LocalListenPort int    `long:"port" description:"TCP Port to listen" default:"6006"`
 	LocalIP         string `long:"ip" description:"Local IP to bind to. Defaults to 127.0.0.1" default:"127.0.0.1"`
 }
@@ -33,6 +36,7 @@ func parseSignallingServerArgs() {
 
 func main() {
 	parseSignallingServerArgs()
+	InitLogBasedOnVerbosity(SignallingServerOpts.Verbose)
 	fmt.Println("Running server")
 	fmt.Println(SignallingServerOpts.LocalIP, SignallingServerOpts.LocalListenPort)
 
@@ -40,6 +44,26 @@ func main() {
 
 	http.HandleFunc("/ws/", yakkserver.HandleMessage)
 	http.HandleFunc("/", yakkserver.Hello)
-	go yakkserver.CleanMailBoxes()
+	// go yakkserver.CleanMailBoxes()
+
+	go yakkserver.CleanMailRooms()
 	http.ListenAndServe(addr, nil)
+}
+
+func InitLogBasedOnVerbosity(verbosity []bool) {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	switch len(verbosity) {
+	case 0:
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	case 1:
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	case 2:
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	case 3:
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
+	}
 }
