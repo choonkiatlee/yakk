@@ -15,14 +15,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const usage = `Usage: ssh-p2p SUBCMD [options]
+const usage = `Usage: yakk SUBCMD [options]
 sub-commands:
-	newkey
-		new generate key of connection
 	server -
-		ssh server side peer mode
+		ssh server side mode
 	client -key="..." [-listen="127.0.0.1:2222"]
-		ssh client side peer mode
+		ssh client side mode
 `
 
 var ServerOpts struct {
