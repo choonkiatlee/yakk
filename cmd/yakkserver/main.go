@@ -44,8 +44,8 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", SignallingServerOpts.LocalIP, SignallingServerOpts.LocalListenPort)
 
-	http.HandleFunc("/ws/", yakkserver.HandleMessage)
-	http.HandleFunc("/", yakkserver.Hello)
+	// http.HandleFunc("/ws/", yakkserver.HandleMessage)
+	http.HandleFunc("/", yakkserver.HandleMessage)
 	// go yakkserver.CleanMailBoxes()
 
 	go yakkserver.CleanMailRooms()
