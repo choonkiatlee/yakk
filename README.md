@@ -1,7 +1,9 @@
 # YAKK -- "Anything" over WebRTC
 
 Ever wanted to run ssh over a p2p connection? Or share a development webserver with friends but don't have a public IP address? 
-Yakk has got you covered! YAKK is a simple set of go programs that creates a p2p "tunnel" between computers, allowing you to share
+Yakk has got you covered! 
+
+YAKK is a simple set of go programs that creates a p2p "tunnel" between computers, allowing you to share
 traffic between the connected computers without knowing each other's public IP addresses.
 
 # Quickstart Example 1:
@@ -16,14 +18,14 @@ Alice runs:
 ./yakk server -p 22
 > Your mailroom name is: swimming
 > Input MailRoom PW:
-> asdasdasd
+> thisisanotsostrongpassword
 >
-> One line connection command: yakk client -p <port> swimming --pw asdasd
+> One line connection command: yakk client -p <port> swimming --pw thisisanotsostrongpassword
 ```
 
 Bob runs:
 ```bash
-./yakk client -p 9000 swimming --pw asdasd
+./yakk client -p 9000 swimming --pw thisisanotsostrongpassword
 ssh bob@localhost:9000   # et voila! ssh'ed into Alice's computer :)
 ```
 
@@ -38,14 +40,14 @@ Alice runs:
 ./yakk filesend path/to/file
 > Your mailroom name is: swimming
 > Input MailRoom PW:
-> asdasdasd
+> thisisanotsostrongpassword
 >
-> One line connection command: yakk filereceive swimming --pw asdasd
+> One line connection command: yakk filereceive swimming --pw thisisanotsostrongpassword
 ```
 
 Bob runs:
 ```bash
-./yakk filereceive swimming --pw asdasd
+./yakk filereceive swimming --pw thisisanotsostrongpassword
 > Downloaded path/to/file!
 ```
 
