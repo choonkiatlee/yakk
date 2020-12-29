@@ -28,8 +28,8 @@ var ServerOpts struct {
 	// is encountered (can be set multiple times, like -vvv)
 	Verbose            []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
-	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
+	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"0.0.0.0"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"yakk.herokuapp.com"`
 	KeepAlive          bool   `long:"keepalive" description:"whether or not to keep the server connection alive for a while longer after all connections have closed"`
 }
 
@@ -38,9 +38,9 @@ var ClientOpts struct {
 	// is encountered (can be set multiple times, like -vvv)
 	Verbose            []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
-	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
+	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"0.0.0.0"`
 	PW                 string `long:"pw" description:"Mail Room Password" default:""`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"yakk.herokuapp.com"`
 }
 
 var FileSendReceiveOpts struct {
@@ -48,7 +48,7 @@ var FileSendReceiveOpts struct {
 	Port               string `short:"p" long:"port" description:"TCP Port to listen. Defaults to a random open port" default:"-1"`
 	PW                 string `long:"pw" description:"Mail Room Password" default:""`
 	KeepAlive          bool   `long:"keepalive" description:"whether or not to keep the server connection alive for a while longer after all connections have closed"`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"yakk.herokuapp.com"`
 }
 
 // Define command line arguments
