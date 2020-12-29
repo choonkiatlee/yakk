@@ -27,7 +27,7 @@ func SendDataChannelMail(msg_type, payload string, datachannel io.ReadWriteClose
 }
 
 func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool, signallingServerURL string) (YakkMailRoomConnection, error) {
-	url := fmt.Sprintf("ws://%s/ws?keepAlive=%t", signallingServerURL, keepAlive)
+	url := fmt.Sprintf("ws://%s/ws/?keepAlive=%t", signallingServerURL, keepAlive)
 	log.Debug().Msg(url)
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
