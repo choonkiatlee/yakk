@@ -15,3 +15,6 @@ require (
 	github.com/tscholl2/siec v0.0.0-20191122224205-8da93652b094 // indirect
 	golang.org/x/crypto v0.0.0-20201217014255-9d1352758620 // indirect
 )
+
+// +heroku goVersion go1.15
+
