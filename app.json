@@ -1,0 +1,12 @@
+{
+  "name": "YAKK Server",
+  "description": "Signalling server for yakk",
+  "keywords": [
+    "yakk",
+    "go",
+    "ssh",
+    "p2p"
+  ],
+  "website": "https://github.com/choonkiatlee/yakk",
+  "repository": "https://github.com/choonkiatlee/yakk"
+}

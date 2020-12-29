@@ -160,9 +160,11 @@ func HandleMessage(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	log.Info().Msgf("Trying to upgrade ws conn with room ID: %s", roomID)
+
 	ws, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
-		log.Print("Problem upgrading the ws conn with error: ", err)
+		log.Error().Msgf("Problem upgrading the ws conn with error: %s", err.Error())
 		return
 	}
 

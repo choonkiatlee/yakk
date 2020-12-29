@@ -60,10 +60,10 @@ HandleWSMsgLoop:
 	return peerConnection, nil
 }
 
-func Callee(wg *sync.WaitGroup, clientCommandName string, keepAlive bool) (*webrtc.PeerConnection, error) {
+func Callee(wg *sync.WaitGroup, clientCommandName string, keepAlive bool, signallingServerURL string) (*webrtc.PeerConnection, error) {
 
 	joinedRoomChan := make(chan *YakkMailBoxConnection)
-	yakkMailRoomConnection, err := CreateMailRoom(joinedRoomChan, keepAlive)
+	yakkMailRoomConnection, err := CreateMailRoom(joinedRoomChan, keepAlive, signallingServerURL)
 	if err != nil {
 		return &webrtc.PeerConnection{}, err
 	}

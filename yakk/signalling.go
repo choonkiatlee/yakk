@@ -26,9 +26,12 @@ func SendDataChannelMail(msg_type, payload string, datachannel io.ReadWriteClose
 	return err
 }
 
-func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool) (YakkMailRoomConnection, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:6006/ws/?keepAlive=%t", keepAlive), nil)
+func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool, signallingServerURL string) (YakkMailRoomConnection, error) {
+	url := fmt.Sprintf("ws://%s/ws?keepAlive=%t", signallingServerURL, keepAlive)
+	log.Debug().Msg(url)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
+		log.Error().Msg(err.Error())
 		return YakkMailRoomConnection{}, err
 	}
 
@@ -45,9 +48,9 @@ func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool) 
 	return yakkMailRoom, nil
 }
 
-func JoinMailRoom(roomID string) (YakkMailRoomConnection, *YakkMailBoxConnection, error) {
+func JoinMailRoom(roomID string, signallingServerURL string) (YakkMailRoomConnection, *YakkMailBoxConnection, error) {
 
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("%s?roomID=%s", "ws://127.0.0.1:6006/ws/", roomID), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s/ws/?roomID=%s", signallingServerURL, roomID), nil)
 	if err != nil {
 		return YakkMailRoomConnection{}, &YakkMailBoxConnection{}, err
 	}

@@ -66,13 +66,13 @@ HandleWSMsgLoop:
 	return peerConnection, commandDataChannel, nil
 }
 
-func Caller(roomID string, pw []byte, wg *sync.WaitGroup) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
+func Caller(roomID string, pw []byte, wg *sync.WaitGroup, signallingServerURL string) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
 
 	if len(roomID) == 0 {
 		roomID = GetInputFromStdin("Input MailRoom Name: ")
 	}
 
-	_, yakkMailBoxConnection, err := JoinMailRoom(roomID)
+	_, yakkMailBoxConnection, err := JoinMailRoom(roomID, signallingServerURL)
 	if err != nil {
 		return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
 	}

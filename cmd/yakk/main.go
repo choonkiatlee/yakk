@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/choonkiatlee/yakk/yakk"
-	"github.com/choonkiatlee/yakk/yakkutils"
+	""github.com/choonkiatlee/yakk/yakk"
+	"github.com/choonkiatlee/yakk/yakkutils""
 	"github.com/jessevdk/go-flags"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -29,7 +29,7 @@ var ServerOpts struct {
 	Verbose            []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
 	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
 	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"https://127.0.0.1:6006"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
 	KeepAlive          bool   `long:"keepalive" description:"whether or not to keep the server connection alive for a while longer after all connections have closed"`
 }
 
@@ -40,7 +40,7 @@ var ClientOpts struct {
 	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
 	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"127.0.0.1"`
 	PW                 string `long:"pw" description:"Mail Room Password" default:""`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"https://127.0.0.1:6006"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
 }
 
 var FileSendReceiveOpts struct {
@@ -48,7 +48,7 @@ var FileSendReceiveOpts struct {
 	Port               string `short:"p" long:"port" description:"TCP Port to listen. Defaults to a random open port" default:"-1"`
 	PW                 string `long:"pw" description:"Mail Room Password" default:""`
 	KeepAlive          bool   `long:"keepalive" description:"whether or not to keep the server connection alive for a while longer after all connections have closed"`
-	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"https://127.0.0.1:6006"`
+	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"ckl41.user.srcf.net"`
 }
 
 // Define command line arguments
@@ -105,7 +105,7 @@ func main() {
 		InitLogBasedOnVerbosity(ClientOpts.Verbose)
 		fmt.Println("Client Mode. Listening on: ", ClientOpts.Host, ClientOpts.Port)
 		callerWaitGroup := &sync.WaitGroup{}
-		peerConnection, _, err := yakk.Caller(roomID, []byte(ClientOpts.PW), callerWaitGroup)
+		peerConnection, _, err := yakk.Caller(roomID, []byte(ClientOpts.PW), callerWaitGroup, ClientOpts.SignalingServerURL)
 		yakk.PanicOnErr(err)
 		go yakk.ListenOnTCP(net.JoinHostPort(ClientOpts.Host, ClientOpts.Port), peerConnection)
 		callerWaitGroup.Wait()
@@ -118,7 +118,10 @@ func main() {
 		fmt.Println("Server Mode. Connected to: ", ServerOpts.Host, ServerOpts.Port)
 		// Create a mailbox first
 		callerWaitGroup := &sync.WaitGroup{}
-		yakk.Callee(callerWaitGroup, "client -p <port>", ServerOpts.KeepAlive)
+		_, err := yakk.Callee(callerWaitGroup, "client -p <port>", ServerOpts.KeepAlive, ServerOpts.SignalingServerURL)
+		if err != nil {
+			panic(err)
+		}
 		callerWaitGroup.Wait()
 		log.Info().Msg("No more connections...Shutting down...")
 
@@ -129,7 +132,7 @@ func main() {
 
 		// Create a server connection on the specified port
 		calleeWaitGroup := &sync.WaitGroup{}
-		peerConnection, err := yakk.Callee(calleeWaitGroup, "filereceive", FileSendReceiveOpts.KeepAlive)
+		peerConnection, err := yakk.Callee(calleeWaitGroup, "filereceive", FileSendReceiveOpts.KeepAlive, FileSendReceiveOpts.SignalingServerURL)
 		log.Info().Msg("connected to peer")
 		yakk.PanicOnErr(err)
 		yakk.ConnectToTCP(net.JoinHostPort("", port), peerConnection)
@@ -152,7 +155,7 @@ func main() {
 
 		// Create a connection to the sender
 		callerWaitGroup := &sync.WaitGroup{}
-		peerConnection, _, err := yakk.Caller(roomID, []byte(FileSendReceiveOpts.PW), callerWaitGroup)
+		peerConnection, _, err := yakk.Caller(roomID, []byte(FileSendReceiveOpts.PW), callerWaitGroup, FileSendReceiveOpts.SignalingServerURL)
 		yakk.PanicOnErr(err)
 		log.Debug().Msg("Connected through webrtc")
 		go yakk.ListenOnTCP(net.JoinHostPort("", port), peerConnection)
