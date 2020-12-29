@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"sync"
 
-	""github.com/choonkiatlee/yakk/yakk"
-	"github.com/choonkiatlee/yakk/yakkutils""
+	"github.com/choonkiatlee/yakk/yakk"
+	"github.com/choonkiatlee/yakk/yakkutils"
 	"github.com/jessevdk/go-flags"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
