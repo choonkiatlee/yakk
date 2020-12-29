@@ -1,1 +1,1 @@
-web: ./bin/yakkserver -p $PORT
+web: ./bin/yakkserver --port $PORT

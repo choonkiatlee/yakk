@@ -23,7 +23,7 @@ var SignallingServerOpts struct {
 	// Slice of bool will append 'true' each time the option
 	// is encountered (can be set multiple times, like -vvv)
 	Verbose            []bool `short:"v" long:"verbose" description:"Show verbose debug information"`
-	LocalListenPort    int    `long:"port" description:"TCP Port to listen" default:"6006"`
+	LocalListenPort    int    `short: "p" long:"port" description:"TCP Port to listen" default:"6006"`
 	LocalIP            string `long:"ip" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"0.0.0.0"`
 	UnixSocketFilename string `long:"unixsockfile" description:"Name of unix socket to bind to. This overrides ip / port" default:""`
 }
