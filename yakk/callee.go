@@ -60,7 +60,7 @@ HandleWSMsgLoop:
 	return peerConnection, nil
 }
 
-func Callee(wg *sync.WaitGroup, clientCommandName string, keepAlive bool, signallingServerURL string) (*webrtc.PeerConnection, error) {
+func Callee(wg *sync.WaitGroup, pw []byte, clientCommandName string, keepAlive bool, signallingServerURL string) (*webrtc.PeerConnection, error) {
 
 	joinedRoomChan := make(chan *YakkMailBoxConnection)
 	yakkMailRoomConnection, err := CreateMailRoom(joinedRoomChan, keepAlive, signallingServerURL)
@@ -72,7 +72,9 @@ func Callee(wg *sync.WaitGroup, clientCommandName string, keepAlive bool, signal
 
 	// For JPake
 	// Wait for someone to join the room
-	pw := []byte(GetInputFromStdin("Input MailRoom PW: "))
+	if len(pw) == 0 {
+		pw = []byte(GetInputFromStdin("Input MailRoom PW: "))
+	}
 	fmt.Println(fmt.Sprintf("One line connection command: yakk %s %s --pw %s", clientCommandName, yakkMailRoomConnection.Name, string(pw)))
 
 	yakkMailBoxConnection := <-joinedRoomChan

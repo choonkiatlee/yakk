@@ -30,6 +30,7 @@ var ServerOpts struct {
 	Port               string `short:"p" long:"port" description:"TCP Port to listen" required:"True"`
 	Host               string `long:"host" description:"Local IP to bind to. Defaults to 0.0.0.0" default:"0.0.0.0"`
 	SignalingServerURL string `short:"s" long:"signalling-server-url" description:"URL for the signalling server" default:"yakk.herokuapp.com"`
+	PW                 string `long:"pw" description:"Mail Room Password" default:""`
 	KeepAlive          bool   `long:"keepalive" description:"whether or not to keep the server connection alive for a while longer after all connections have closed"`
 }
 
@@ -118,7 +119,7 @@ func main() {
 		fmt.Println("Server Mode. Connected to: ", ServerOpts.Host, ServerOpts.Port)
 		// Create a mailbox first
 		callerWaitGroup := &sync.WaitGroup{}
-		_, err := yakk.Callee(callerWaitGroup, "client -p <port>", ServerOpts.KeepAlive, ServerOpts.SignalingServerURL)
+		_, err := yakk.Callee(callerWaitGroup, []byte(ClientOpts.PW), "client -p <port>", ServerOpts.KeepAlive, ServerOpts.SignalingServerURL)
 		if err != nil {
 			panic(err)
 		}
@@ -132,7 +133,7 @@ func main() {
 
 		// Create a server connection on the specified port
 		calleeWaitGroup := &sync.WaitGroup{}
-		peerConnection, err := yakk.Callee(calleeWaitGroup, "filereceive", FileSendReceiveOpts.KeepAlive, FileSendReceiveOpts.SignalingServerURL)
+		peerConnection, err := yakk.Callee(calleeWaitGroup, []byte(ClientOpts.PW), "filereceive", FileSendReceiveOpts.KeepAlive, FileSendReceiveOpts.SignalingServerURL)
 		log.Info().Msg("connected to peer")
 		yakk.PanicOnErr(err)
 		yakk.ConnectToTCP(net.JoinHostPort("", port), peerConnection)

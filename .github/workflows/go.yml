@@ -71,20 +71,6 @@ jobs:
         zip -rmj ./bin/yakk/yakk-linux-arm.zip ./bin/linux-arm/yakk
         zip -rmj ./bin/yakkserver/yakkserver-linux-arm.zip ./bin/linux-arm/yakkserver
 
-    - name: Install Android toolchain
-      run: |
-        sudo apt-get install gcc-arm-linux-gnueabi 
-
-    - name: Build Android ARM
-      run: |
-        CGO_ENABLED=1 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm/yakk -v ./cmd/yakk/.
-        zip -rmj ./bin/yakk/yakk-android-arm.zip ./bin/android-arm/yakk
-
-    - name: Build Android ARM 64
-      run: |
-        CGO_ENABLED=1 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm64/yakk -v ./cmd/yakk/.
-        zip -rmj ./bin/yakk/yakk-android-arm64.zip ./bin/android-arm64/yakk
-
     - name: Build Windows x86
       run: |
         CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk.exe ./cmd/yakk/.
