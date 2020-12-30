@@ -41,6 +41,12 @@ jobs:
             dep ensure
         fi
 
+    - name: Prepare artifact folder
+      run: |
+        mkdir ./bin
+        mkdir ./bin/yakk
+        mkdir ./bin/yakkserver
+
     - name: Build Linux AMD 64
       run: |
         CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakk -v ./cmd/yakk/.
