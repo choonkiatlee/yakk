@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 
 	"github.com/choonkiatlee/yakk/yakkserver"
@@ -32,11 +31,11 @@ func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool, 
 	log.Debug().Msg(url)
 	// We force tcp4 because of a bug on android which doesn't resolve ipv6 addresses properly / only tries the ipv6 address, which heroku doesn't like?
 	// This forces the dial to hit only ipv4 address resolution.
-	tcp4OnlyDialer := websocket.DefaultDialer
-	tcp4OnlyDialer.NetDial = func(network, addr string) (net.Conn, error) {
-		return net.Dial("tcp4", addr)
-	}
-	conn, _, err := tcp4OnlyDialer.Dial(url, nil)
+	// tcp4OnlyDialer := websocket.DefaultDialer
+	// tcp4OnlyDialer.NetDial = func(network, addr string) (net.Conn, error) {
+	// 	return net.Dial("tcp4", addr)
+	// }
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		log.Error().Msg(err.Error())
 		return YakkMailRoomConnection{}, err
@@ -58,11 +57,11 @@ func CreateMailRoom(joinedRoomChan chan *YakkMailBoxConnection, keepAlive bool, 
 func JoinMailRoom(roomID string, signallingServerURL string) (YakkMailRoomConnection, *YakkMailBoxConnection, error) {
 
 	url := fmt.Sprintf("ws://%s/ws/?roomID=%s", signallingServerURL, roomID)
-	tcp4OnlyDialer := websocket.DefaultDialer
-	tcp4OnlyDialer.NetDial = func(network, addr string) (net.Conn, error) {
-		return net.Dial("tcp4", addr)
-	}
-	conn, _, err := tcp4OnlyDialer.Dial(url, nil)
+	// tcp4OnlyDialer := websocket.DefaultDialer
+	// tcp4OnlyDialer.NetDial = func(network, addr string) (net.Conn, error) {
+	// 	return net.Dial("tcp4", addr)
+	// }
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return YakkMailRoomConnection{}, &YakkMailBoxConnection{}, err
 	}
