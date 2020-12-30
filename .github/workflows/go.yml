@@ -52,48 +52,48 @@ jobs:
         CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-linux-386.zip ./bin/linux-386/yakk
-        zip -rm ./bin/yakkserver/yakkserver-linux-386.zip ./bin/linux-386/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-linux-386.zip ./linux-386/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-linux-386.zip ./linux-386/yakkserver; cd ..
 
     - name: Build Linux AMD 64
       run: |
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-linux-amd64.zip ./bin/linux-amd64/yakk
-        zip -rm ./bin/yakkserver/yakkserver-linux-amd64.zip ./bin/linux-amd64/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-linux-amd64.zip ./linux-amd64/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-linux-amd64.zip ./linux-amd64/yakkserver; cd ..
 
     - name: Build Linux ARM
       run: |
         CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-linux-arm.zip ./bin/linux-arm/yakk
-        zip -rm ./bin/yakkserver/yakkserver-linux-arm.zip ./bin/linux-arm/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-linux-arm.zip ./linux-arm/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-linux-arm.zip ./linux-arm/yakkserver; cd ..
 
     - name: Build Linux ARM 64
       run: |
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ./bin/linux-arm64/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ./bin/linux-arm64/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-linux-arm64.zip ./bin/linux-arm64/yakk
-        zip -rm ./bin/yakkserver/yakkserver-linux-arm64.zip ./bin/linux-arm64/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-linux-arm64.zip ./linux-arm64/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-linux-arm64.zip ./linux-arm64/yakkserver; cd ..
 
     - name: Build Windows x86
       run: |
         CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-windows-386.zip ./bin/windows-386/yakk
-        zip -rm ./bin/yakkserver/yakkserver-windows-386.zip ./bin/windows-386/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-windows-386.zip ./windows-386/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-windows-386.zip ./windows-386/yakkserver; cd ..
 
     - name: Build Windows amd64
       run: |
         CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakk -v ./cmd/yakk/.
         CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakkserver -v ./cmd/yakkserver/.
 
-        zip -rm ./bin/yakk/yakk-windows-amd64.zip ./bin/windows-amd64/yakk
-        zip -rm ./bin/yakkserver/yakkserver-windows-amd64.zip ./bin/windows-amd64/yakkserver
+        cd bin; zip -rm ../bin/yakk/yakk-windows-amd64.zip ./windows-amd64/yakk; cd ..
+        cd bin; zip -rm ../bin/yakkserver/yakkserver-windows-amd64.zip ./windows-amd64/yakkserver; cd ..
 
     # - name: Test
     #   run: go test -v ./...
