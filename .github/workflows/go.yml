@@ -49,50 +49,54 @@ jobs:
 
     - name: Build Linux 386
       run: |
-        CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakk -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakkserver -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakk ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -o ./bin/linux-386/yakkserver ./cmd/yakkserver/.
 
         zip -rmj ./bin/yakk/yakk-linux-386.zip ./bin/linux-386/yakk
         zip -rmj ./bin/yakkserver/yakkserver-linux-386.zip ./bin/linux-386/yakkserver
 
     - name: Build Linux AMD 64
       run: |
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakk -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakkserver -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakk ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/linux-amd64/yakkserver ./cmd/yakkserver/.
 
         zip -rmj ./bin/yakk/yakk-linux-amd64.zip ./bin/linux-amd64/yakk
         zip -rmj ./bin/yakkserver/yakkserver-linux-amd64.zip ./bin/linux-amd64/yakkserver
 
     - name: Build Linux ARM
       run: |
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakk -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakkserver -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakk ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm go build -o ./bin/linux-arm/yakkserver ./cmd/yakkserver/.
 
         zip -rmj ./bin/yakk/yakk-linux-arm.zip ./bin/linux-arm/yakk
         zip -rmj ./bin/yakkserver/yakkserver-linux-arm.zip ./bin/linux-arm/yakkserver
 
+    - name: Install Android toolchain
+      run: |
+        sudo apt-get install gcc-arm-linux-gnueabi 
+
     - name: Build Android ARM
       run: |
-        CGO_ENABLED=0 GOOS=android GOARCH=arm go build -o ./bin/android-arm/yakk -v ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm/yakk -v ./cmd/yakk/.
         zip -rmj ./bin/yakk/yakk-android-arm.zip ./bin/android-arm/yakk
 
     - name: Build Android ARM 64
       run: |
-        CGO_ENABLED=0 GOOS=android GOARCH=arm go build -o ./bin/android-arm64/yakk -v ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm64/yakk -v ./cmd/yakk/.
         zip -rmj ./bin/yakk/yakk-android-arm64.zip ./bin/android-arm64/yakk
 
     - name: Build Windows x86
       run: |
-        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk.exe -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakkserver.exe -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk.exe ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakkserver.exe ./cmd/yakkserver/.
 
         zip -rmj ./bin/yakk/yakk-windows-386.zip ./bin/windows-386/yakk.exe
         zip -rmj ./bin/yakkserver/yakkserver-windows-386.zip ./bin/windows-386/yakkserver.exe
 
     - name: Build Windows amd64
       run: |
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakk.exe -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakkserver.exe -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakk.exe ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakkserver.exe ./cmd/yakkserver/.
 
         zip -rmj ./bin/yakk/yakk-windows-amd64.zip ./bin/windows-amd64/yakk.exe
         zip -rmj ./bin/yakkserver/yakkserver-windows-amd64.zip ./bin/windows-amd64/yakkserver.exe
