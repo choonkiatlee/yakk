@@ -77,12 +77,12 @@ jobs:
 
     - name: Build Android ARM
       run: |
-        CGO_ENABLED=0 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm/yakk -v ./cmd/yakk/.
+        CGO_ENABLED=1 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm/yakk -v ./cmd/yakk/.
         zip -rmj ./bin/yakk/yakk-android-arm.zip ./bin/android-arm/yakk
 
     - name: Build Android ARM 64
       run: |
-        CGO_ENABLED=0 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm64/yakk -v ./cmd/yakk/.
+        CGO_ENABLED=1 GOOS=android GOARCH=arm CC=arm-linux-gnueabi-gcc go build -o ./bin/android-arm64/yakk -v ./cmd/yakk/.
         zip -rmj ./bin/yakk/yakk-android-arm64.zip ./bin/android-arm64/yakk
 
     - name: Build Windows x86
