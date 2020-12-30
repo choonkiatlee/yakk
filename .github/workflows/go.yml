@@ -81,19 +81,19 @@ jobs:
 
     - name: Build Windows x86
       run: |
-        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakkserver -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakk.exe -v ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=386 go build -o ./bin/windows-386/yakkserver.exe -v ./cmd/yakkserver/.
 
-        zip -rmj ./bin/yakk/yakk-windows-386.zip ./bin/windows-386/yakk
-        zip -rmj ./bin/yakkserver/yakkserver-windows-386.zip ./bin/windows-386/yakkserver
+        zip -rmj ./bin/yakk/yakk-windows-386.zip ./bin/windows-386/yakk.exe
+        zip -rmj ./bin/yakkserver/yakkserver-windows-386.zip ./bin/windows-386/yakkserver.exe
 
     - name: Build Windows amd64
       run: |
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakk -v ./cmd/yakk/.
-        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakkserver -v ./cmd/yakkserver/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakk.exe -v ./cmd/yakk/.
+        CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ./bin/windows-amd64/yakkserver.exe -v ./cmd/yakkserver/.
 
-        zip -rmj ./bin/yakk/yakk-windows-amd64.zip ./bin/windows-amd64/yakk
-        zip -rmj ./bin/yakkserver/yakkserver-windows-amd64.zip ./bin/windows-amd64/yakkserver
+        zip -rmj ./bin/yakk/yakk-windows-amd64.zip ./bin/windows-amd64/yakk.exe
+        zip -rmj ./bin/yakkserver/yakkserver-windows-amd64.zip ./bin/windows-amd64/yakkserver.exe
 
     # - name: Test
     #   run: go test -v ./...
