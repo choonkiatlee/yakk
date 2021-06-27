@@ -132,5 +132,3 @@ go run ./cmd/yakk/. client -p 8080
 ## Edit Ascii Art
 - [PAKE Procedure](http://stable.ascii-flow.appspot.com/#2326929467921821744/401694744)
 - [WebRTC Connection Procedure](http://stable.ascii-flow.appspot.com/#2741619146174214850/79893535)
-
-

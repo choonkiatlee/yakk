@@ -1,1 +1,0 @@
-web: ./bin/yakkserver --port $PORT --ip "" -vvv

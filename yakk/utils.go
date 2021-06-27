@@ -4,42 +4,24 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"os"
 	"strings"
-
-	"github.com/rs/zerolog/log"
 )
 
 var compress = false
 
-// MustReadStdin blocks until input is received from stdin
-func MustReadStdin() string {
-	r := bufio.NewReader(os.Stdin)
-
-	var in string
-	for {
-		var err error
-		in, err = r.ReadString('\n')
-		if err != io.EOF {
-			if err != nil {
-				panic(err)
-			}
-		}
-		in = strings.TrimSpace(in)
-		if len(in) > 0 {
-			break
-		}
+func PanicOnErr(err error) {
+	if err != nil {
+		panic(err)
 	}
-
-	fmt.Println("")
-
-	return in
 }
 
 // Encode encodes the input in base64
@@ -132,83 +114,90 @@ func unzip(in []byte) []byte {
 	return res
 }
 
+// From https://www.melvinvivas.com/how-to-encrypt-and-decrypt-data-using-aes/
+// To check
+func AESencrypt(plaintext []byte, key []byte) (encrypted []byte, err error) {
+
+	//Since the key is in string, we need to convert decode it to bytes
+	//Create a new Cipher Block from the key
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	//Create a new GCM - https://en.wikipedia.org/wiki/Galois/Counter_Mode
+	//https://golang.org/pkg/crypto/cipher/#NewGCM
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	//Create a nonce. Nonce should be from GCM
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return []byte{}, err
+	}
+
+	//Encrypt the data using aesGCM.Seal
+	//Since we don't want to save the nonce somewhere else in this case, we add it as a prefix to the encrypted data. The first nonce argument in Seal is the prefix.
+	ciphertext := aesGCM.Seal(nonce, nonce, plaintext, nil)
+	return ciphertext, nil
+}
+
+func AESdecrypt(encrypted []byte, key []byte) (decrypted []byte, err error) {
+
+	//Create a new Cipher Block from the key
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	//Create a new GCM
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	//Get the nonce size
+	nonceSize := aesGCM.NonceSize()
+
+	//Extract the nonce from the encrypted data
+	nonce, ciphertext := encrypted[:nonceSize], encrypted[nonceSize:]
+
+	//Decrypt the data
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return plaintext, nil
+}
+
+// MustReadStdin blocks until input is received from stdin
+func MustReadStdin() string {
+	r := bufio.NewReader(os.Stdin)
+
+	var in string
+	for {
+		var err error
+		in, err = r.ReadString('\n')
+		if err != io.EOF {
+			if err != nil {
+				panic(err)
+			}
+		}
+		in = strings.TrimSpace(in)
+		if len(in) > 0 {
+			break
+		}
+	}
+
+	fmt.Println("")
+
+	return in
+}
+
 func GetInputFromStdin(msg string) string {
 	fmt.Println(msg)
 	return MustReadStdin()
-}
-
-// Todo: Fact Check this
-func StapleConnections(conn1 io.ReadWriteCloser, conn2 io.ReadWriteCloser) {
-	// channels to wait on the close event for each connection
-	conn1Closed := make(chan struct{}, 1)
-	conn2Closed := make(chan struct{}, 1)
-
-	go broker(conn1, conn2, conn2Closed)
-	go broker(conn2, conn1, conn1Closed)
-
-	// wait for one half of the proxy to exit, then trigger a shutdown of the
-	// other half by calling CloseRead(). This will break the read loop in the
-	// broker and allow us to fully close the connection cleanly without a
-	// "use of closed network connection" error.
-	var waitFor chan struct{}
-	select {
-	case <-conn2Closed:
-		// the client closed first and any more packets from the server aren't
-		// useful, so we can optionally SetLinger(0) here to recycle the port
-		// faster.
-		err := conn1.Close()
-		if err != nil {
-			panic(err)
-		}
-		waitFor = conn1Closed
-	case <-conn1Closed:
-		err := conn2.Close()
-		if err != nil {
-			panic(err)
-		}
-		waitFor = conn2Closed
-	}
-
-	// Wait for the other connection to close.
-	// This "waitFor" pattern isn't required, but gives us a way to track the
-	// connection and ensure all copies terminate correctly; we can trigger
-	// stats on entry and deferred exit of this function.
-	<-waitFor
-	log.Info().Msg("Closed Stapled Connections.")
-}
-
-// This does the actual data transfer.
-// The broker only closes the Read side.
-func broker(dst io.ReadWriteCloser, src io.ReadWriteCloser, srcClosed chan struct{}) {
-	// We can handle errors in a finer-grained manner by inlining io.Copy (it's
-	// simple, and we drop the ReaderFrom or WriterTo checks for
-	// net.Conn->net.Conn transfers, which aren't needed). This would also let
-	// us adjust buffersize.
-	// Create a buffer of 4KB. This is to prevent readwrite errors as in:
-	// https://github.com/pion/datachannel/issues/59
-	buf := make([]byte, 4<<10)
-	_, err := io.CopyBuffer(dst, src, buf)
-
-	if err != nil {
-		// We should be able to fairly simply ignore this
-		log.Info().Msgf("Copy error: %s\n", err)
-	}
-	if err := src.Close(); err != nil {
-		log.Info().Msgf("Close error: %s\n", err)
-	}
-	srcClosed <- struct{}{}
-}
-
-func GetRandomOpenPort() (int, error) {
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return -1, err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-
-	if err := listener.Close(); err != nil {
-		return -1, err
-	}
-
-	return port, nil
 }

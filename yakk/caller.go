@@ -1,13 +1,70 @@
 package yakk
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pion/webrtc/v3"
 	"github.com/rs/zerolog/log"
 )
 
-func CallerInitialiseRTCConn(yakkMailBoxConnection *YakkMailBoxConnection, wg *sync.WaitGroup) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
+func Caller(yakkMailBoxConnection *YakkMailBoxConnection, mailRoomName string, pw []byte, connectedSuccessString string, wg *sync.WaitGroup) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
+	err := createMailBox(yakkMailBoxConnection, mailRoomName)
+	if err != nil {
+		return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
+	}
+	go yakkMailBoxConnection.ListenForMsgs()
+
+	if len(pw) == 0 {
+		pw = []byte(GetInputFromStdin("Input MailRoom PW: "))
+	}
+	err = JPAKEExchange(pw, yakkMailBoxConnection, true)
+	retries := 0
+	for err != nil && retries < 5 {
+		pw = []byte(GetInputFromStdin("Input MailRoom PW: "))
+		err = JPAKEExchange(pw, yakkMailBoxConnection, true)
+		retries += 1
+	}
+
+	return CallerInitialiseRTCConn(yakkMailBoxConnection, connectedSuccessString, wg)
+}
+
+func createMailBox(yakkMailBoxConnection *YakkMailBoxConnection, mailRoomName string) error {
+
+	yakkMailBoxConnection.RoomName = mailRoomName
+	docRef := yakkMailBoxConnection.getMailRoomDocRef()
+	snapshot, err := docRef.Get(
+		context.Background(),
+	)
+	if err != nil {
+		return err
+	}
+
+	yakkMailRoomSchema := YakkMailRoomSchema{}
+	mapstructure.Decode(snapshot.Data(), &yakkMailRoomSchema)
+
+	// todo: retry here till get a unique uuid...
+	id := uuid.New().String()
+	if yakkMailRoomSchema.MailBoxes == nil {
+		yakkMailRoomSchema.MailBoxes = make(map[string]YakkMailBoxSchema)
+	}
+
+	yakkMailRoomSchema.MailBoxes[id] = YakkMailBoxSchema{}
+	yakkMailBoxConnection.MailBoxName = id
+	yakkMailBoxConnection.isOwner = false
+
+	// docRef.Collection("MailBoxes").Doc(id).Create(context.Background(), YakkMailBoxSchema{})
+	mailBoxDocRef := docRef.Collection("MailBoxes").Doc(id)
+	mailBoxDocRef.Create(context.Background(), map[string]string{id: id})
+	mailBoxDocRef.Collection("Msgs").Doc("OtoRMsg").Create(context.Background(), YakkMailBoxMsg{})
+	mailBoxDocRef.Collection("Msgs").Doc("RtoOMsg").Create(context.Background(), YakkMailBoxMsg{})
+	return err
+}
+
+func CallerInitialiseRTCConn(yakkMailBoxConnection *YakkMailBoxConnection, connectedSuccessString string, wg *sync.WaitGroup) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
 
 	peerConnection, err := InitPeerConnection(yakkMailBoxConnection, wg)
 	if err != nil {
@@ -33,69 +90,38 @@ func CallerInitialiseRTCConn(yakkMailBoxConnection *YakkMailBoxConnection, wg *s
 		YAKKMSG_OFFER,
 		payload,
 	)
-	yakkMailBoxConnection.State = YAKK_WAIT_FOR_ANSWER
+	yakkMailBoxConnection.State = YAKKSTATE_WAITFORANSWER
 
 HandleWSMsgLoop:
 	for {
-		mailBoxMsg := <-yakkMailBoxConnection.RecvChannel
-		switch mailBoxMsg.Msg_type {
+		mailBoxMsg := <-yakkMailBoxConnection.RecvChan
+		switch mailBoxMsg.MsgType {
 		case YAKKMSG_ANSWER:
-			if yakkMailBoxConnection.State == YAKK_WAIT_FOR_ANSWER {
+			if yakkMailBoxConnection.State == YAKKSTATE_WAITFORANSWER {
 				err = HandleAnswerMsg(mailBoxMsg, peerConnection, yakkMailBoxConnection.SessionKey)
 				if err != nil {
 					return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
 				}
-				yakkMailBoxConnection.State = YAKK_WAIT_FOR_CONNECTION
+				yakkMailBoxConnection.State = YAKKSTATE_WAITFORCONNECTION
 			}
 		case YAKKMSG_NEW_ICE_CANDIDATE:
-			if (yakkMailBoxConnection.State == YAKK_WAIT_FOR_ANSWER) || (yakkMailBoxConnection.State == YAKK_WAIT_FOR_CONNECTION) {
+			if (yakkMailBoxConnection.State == YAKKSTATE_WAITFORANSWER) || (yakkMailBoxConnection.State == YAKKSTATE_WAITFORCONNECTION) {
 				err = HandleNewICEConnection(mailBoxMsg, peerConnection, yakkMailBoxConnection.SessionKey)
+				if err != nil {
+					return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
+				}
 			}
 		case YAKKMSG_CONNECTED:
 			// Handle connection
-			log.Debug().Msg("RTC Connected, closing websocket...")
+			log.Debug().Msg("RTC Connected.")
+			fmt.Println(connectedSuccessString)
 			yakkMailBoxConnection.SendMsg(
 				YAKKMSG_CONNECTED,
 				"",
 			)
-			yakkMailBoxConnection.State = YAKK_CONNECTED
+			yakkMailBoxConnection.State = YAKKSTATE_CONNECTED
 			break HandleWSMsgLoop
 		}
 	}
-	log.Debug().Msg("Connected...")
 	return peerConnection, commandDataChannel, nil
-}
-
-func Caller(roomID string, pw []byte, wg *sync.WaitGroup, signallingServerURL string) (*webrtc.PeerConnection, *webrtc.DataChannel, error) {
-
-	if len(roomID) == 0 {
-		roomID = GetInputFromStdin("Input MailRoom Name: ")
-	}
-
-	_, yakkMailBoxConnection, err := JoinMailRoom(roomID, signallingServerURL)
-	if err != nil {
-		return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
-	}
-	// Send a request offer message over to the mailroom owner to tell him we want to call him
-	yakkMailBoxConnection.SendMsg(
-		YAKKMSG_REQUESTOFFER, "",
-	)
-	if len(pw) == 0 {
-		pw = []byte(GetInputFromStdin("Input MailRoom PW: "))
-	}
-
-	// Use JPAKE
-	err = JPAKEExchange(pw, yakkMailBoxConnection, true)
-	if err != nil {
-		return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
-	}
-
-	// For schollz
-	// pw = []byte("asdasd")
-	// err = SchollzCallerPAKEExchange(pw, &yakkMailBoxConnection)
-	// if err != nil {
-	// 	return &webrtc.PeerConnection{}, &webrtc.DataChannel{}, err
-	// }
-
-	return CallerInitialiseRTCConn(yakkMailBoxConnection, wg)
 }
